@@ -1,8 +1,24 @@
+# FastAPI Core
 fastapi
 uvicorn[standard]
 python-dotenv
+python-multipart
 
-# LangChain Core
-langchain
-langchain-openai
-langchain-google-genai
+# Database
+sqlmodel
+psycopg2-binary
+alembic
+
+# Data Processing
+pandas
+openpyxl
+
+# HTTP Client
+httpx
+
+# AI SDK
+google-generativeai
+
+# Utilities
+pydantic
+pydantic-settings

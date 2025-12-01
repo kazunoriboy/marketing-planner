@@ -1,0 +1,28 @@
+from pydantic import BaseModel
+from typing import Dict, List, Optional
+from datetime import datetime
+
+
+class CreativeGenerationRequest(BaseModel):
+    """クリエイティブ生成リクエスト"""
+    marketing_plan_id: int
+    generate_lp: bool = True  # LPを生成するか
+    generate_images: bool = True  # 画像を生成するか
+    generate_ad_copy: bool = True  # 広告コピーを生成するか
+
+
+class CreativeAssetResponse(BaseModel):
+    """クリエイティブアセットレスポンス"""
+    id: int
+    marketing_plan_id: int
+    lp_source_code: Optional[str]
+    lp_preview_url: Optional[str]
+    ad_image_urls: Dict
+    ad_copy: Dict
+    generation_prompts: Dict
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+

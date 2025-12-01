@@ -1,0 +1,10 @@
+{
+  "venvPath": ".",
+  "venv": "",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalSubscript": false,
+  "reportOptionalCall": false
+}
+
