@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
+import { useState } from 'react';
 import { 
   BrainCircuit, 
   BarChart3, 
@@ -296,7 +295,7 @@ function Content() {
 }
 
 // メインコンポーネント
-function Home() {
+export default function Home() {
   const [activeView, setActiveView] = useState('dashboard');
 
   const renderContent = () => {
@@ -325,26 +324,3 @@ function Home() {
     </main>
   );
 }
-
-// 動的インポートでSSRを無効化
-export default dynamic(() => Promise.resolve(Home), {
-  ssr: false,
-  loading: () => (
-    <main className="flex h-screen overflow-hidden">
-      <div className="w-64 glass-card p-6 flex flex-col h-full">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-lg flex items-center justify-center">
-            <BrainCircuit className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-xl font-bold text-white">旅館AIアシスタント</h1>
-        </div>
-      </div>
-      <div className="flex-1 p-8 overflow-y-auto">
-        <div className="animate-fadeIn">
-          <h2 className="text-3xl font-bold text-white mb-2">ダッシュボード</h2>
-          <p className="text-slate-400 mb-8">旅館のマーケティング状況を一覧で確認できます</p>
-        </div>
-      </div>
-    </main>
-  )
-});
