@@ -12,6 +12,7 @@ alembic
 # Data Processing
 pandas
 openpyxl
+chardet
 
 # HTTP Client
 httpx

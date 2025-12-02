@@ -11,7 +11,7 @@
 - **フレームワーク**: FastAPI
 - **ORM**: SQLModel
 - **データベース**: PostgreSQL (with pgvector)
-- **AI**: Google Gemini 2.0 Flash (Google AI API直接呼び出し)
+- **AI**: Google Gemini 2.5 Flash-Lite (Google AI API直接呼び出し)
 - **データ分析**: Pandas
 
 ### LangChainを使用しない理由
@@ -24,24 +24,35 @@
 backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # FastAPIアプリケーション
-│   ├── models.py               # SQLModelデータベースモデル
-│   ├── core/                   # コア機能
-│   │   ├── database.py         # データベース接続
-│   │   ├── config.py           # 設定管理
-│   │   └── llm.py              # LLMクライアント
-│   ├── api/                    # APIエンドポイント
-│   │   ├── analysis.py         # 顧客分析・市場調査
-│   │   ├── planning.py         # プラン作成
-│   │   └── creative.py         # クリエイティブ生成
-│   ├── services/               # ビジネスロジック
-│   │   ├── csv_analyzer.py     # CSV分析サービス
-│   │   ├── plan_generator.py   # プラン生成サービス
-│   │   └── creative_generator.py # クリエイティブ生成サービス
-│   └── schemas/                # Pydanticスキーマ
+│   ├── main.py                    # FastAPIアプリケーション
+│   ├── models.py                  # SQLModelデータベースモデル
+│   ├── core/                      # コア機能
+│   │   ├── database.py            # データベース接続
+│   │   ├── config.py              # 設定管理
+│   │   └── llm.py                 # LLMクライアント（Gemini 2.5 Flash-Lite）
+│   ├── api/                       # APIエンドポイント
+│   │   ├── analysis.py            # 顧客分析・市場調査
+│   │   ├── planning.py            # プラン作成
+│   │   └── creative.py            # クリエイティブ生成
+│   ├── services/                  # ビジネスロジック
+│   │   ├── analysis_service.py    # 顧客分析サービス（新規）
+│   │   ├── csv_analyzer.py        # CSV分析サービス（既存）
+│   │   ├── plan_generator.py      # プラン生成サービス
+│   │   └── creative_generator.py  # クリエイティブ生成サービス
+│   └── schemas/                   # Pydanticスキーマ
 │       ├── analysis.py
 │       ├── planning.py
 │       └── creative.py
+├── docs/                          # ドキュメント
+│   ├── README.md                  # ドキュメント一覧
+│   ├── QUICKSTART.md              # クイックスタートガイド
+│   ├── CUSTOMER_ANALYSIS_SPEC.md  # 顧客分析機能仕様書
+│   ├── IMPLEMENTATION_GUIDE.md    # 実装ガイド
+│   └── API_GUIDE.md               # APIガイド
+├── tests/                         # テストコード
+│   ├── __init__.py
+│   ├── README.md                  # テストガイド
+│   └── test_analysis.py           # 顧客分析機能のテスト
 ├── requirements.txt
 ├── Dockerfile
 └── ENV_SETUP.md
@@ -78,10 +89,15 @@ backend/
 - `GET /api/analysis/hotels/{hotel_id}` - 宿泊施設の詳細を取得
 
 #### 顧客分析
-- `POST /api/analysis/customer` - CSVファイルをアップロードして顧客データを分析
-  - スキーマ自動推定（LLM使用）
+- `POST /api/analysis/customer` - CSVファイルをアップロードして顧客データを分析（既存）
+  - スキーマ自動推定（Gemini 2.5 Flash-Lite）
   - 統計情報計算（Pandas）
   - AIインサイト生成
+- `POST /api/analysis/upload-csv` - CSVファイルをアップロードして顧客データを分析（新規・推奨）
+  - エンコーディング自動判別（UTF-8、Shift_JIS等）
+  - AIスキーマ推定（Gemini 2.5 Flash-Lite）
+  - 統計情報計算（キャンセル率、リードタイム、人気プラン等）
+  - マーケティングインサイト生成
 
 #### 市場調査
 - `POST /api/analysis/market` - 市場調査を実行
@@ -208,6 +224,39 @@ pip install -r requirements.txt
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+## 📚 ドキュメント
+
+詳細なドキュメントは `docs/` ディレクトリを参照してください：
+
+- **[クイックスタート](docs/QUICKSTART.md)** - 5分で始める顧客分析機能
+- **[機能仕様書](docs/CUSTOMER_ANALYSIS_SPEC.md)** - 顧客分析機能の詳細仕様
+- **[実装ガイド](docs/IMPLEMENTATION_GUIDE.md)** - 技術的な実装詳細
+- **[APIガイド](docs/API_GUIDE.md)** - エンドポイントの詳細
+
+## 🧪 テスト
+
+テストコードは `tests/` ディレクトリにあります。
+
+### 初回セットアップ
+
+```bash
+# 依存関係のインストール
+docker compose exec backend pip install -r requirements.txt
+docker compose exec backend pip install chardet
+```
+
+### テスト実行
+
+```bash
+# テストスクリプトを実行（サンプルデータで自動テスト）
+docker compose exec backend python tests/test_analysis.py
+
+# pytestでの実行（今後追加予定）
+docker compose exec backend python -m pytest tests/ -v
+```
+
+詳細は [tests/README.md](tests/README.md) を参照してください。
 
 ## 📝 ライセンス
 

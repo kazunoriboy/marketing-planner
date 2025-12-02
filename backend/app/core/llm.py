@@ -9,12 +9,12 @@ load_dotenv()
 class LLMClient:
     """Google Geminiを使用するLLMクライアント"""
     
-    def __init__(self):
+    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY環境変数が設定されていません")
         genai.configure(api_key=api_key)
-        self.model_name = "gemini-2.0-flash-exp"  # Gemini 2.0 Flash (最新・高速)
+        self.model_name = model_name  # デフォルトはGemini 2.5 Flash-Lite
     
     async def generate_text(
         self,
@@ -95,11 +95,48 @@ class LLMClient:
 _llm_client: Optional[LLMClient] = None
 
 
-def get_llm_client() -> LLMClient:
-    """LLMクライアントのシングルトンインスタンスを取得"""
+def get_llm_client(model_name: str = "gemini-2.5-flash-lite") -> LLMClient:
+    """
+    LLMクライアントのシングルトンインスタンスを取得
+    
+    Args:
+        model_name: 使用するGeminiモデル名（デフォルト: gemini-2.5-flash-lite）
+    
+    Returns:
+        LLMクライアントインスタンス
+    """
     global _llm_client
     if _llm_client is None:
-        _llm_client = LLMClient()
+        _llm_client = LLMClient(model_name=model_name)
     return _llm_client
+
+
+async def generate_text(
+    system_prompt: str,
+    user_prompt: str,
+    model: str = "gemini-2.5-flash-lite",
+    max_tokens: int = 4096,
+    temperature: float = 1.0
+) -> str:
+    """
+    テキストを生成（便利関数）
+    
+    Args:
+        system_prompt: システムプロンプト
+        user_prompt: ユーザープロンプト
+        model: 使用するモデル名
+        max_tokens: 最大トークン数
+        temperature: 温度パラメータ
+    
+    Returns:
+        生成されたテキスト
+    """
+    client = get_llm_client(model_name=model)
+    return await client.generate_text(
+        user_prompt=user_prompt,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
+        temperature=temperature
+    )
 
 

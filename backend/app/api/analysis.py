@@ -13,6 +13,7 @@ from app.schemas.analysis import (
     MarketResearchResponse
 )
 from app.services.csv_analyzer import CSVAnalyzer
+from app.services.analysis_service import AnalysisService
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -68,7 +69,7 @@ async def analyze_customer_data(
     session: Session = Depends(get_session)
 ):
     """
-    顧客データ（CSV）を分析
+    顧客データ（CSV）を分析（従来の実装）
     
     - CSVファイルをアップロード
     - スキーマを自動推定
@@ -90,13 +91,81 @@ async def analyze_customer_data(
         
         # CSV分析サービスを初期化
         analyzer = CSVAnalyzer()
-        llm_client = get_llm_client()
+        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
         
         # 分析実行
         statistics, insights = await analyzer.analyze_csv(file_content, llm_client)
         
         # 分析セッションを作成または更新
         # 既存のセッションがあるか確認
+        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+        existing_session = session.exec(statement).first()
+        
+        if existing_session:
+            # 既存セッションを更新
+            existing_session.csv_statistics = statistics
+            existing_session.csv_insights = insights
+            analysis_session = existing_session
+        else:
+            # 新規セッションを作成
+            analysis_session = AnalysisSession(
+                hotel_id=hotel_id,
+                csv_statistics=statistics,
+                csv_insights=insights
+            )
+            session.add(analysis_session)
+        
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return CSVAnalysisResponse(
+            session_id=analysis_session.id,
+            statistics=statistics,
+            insights=insights,
+            created_at=analysis_session.created_at
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析エラー: {str(e)}")
+
+
+@router.post("/upload-csv", response_model=CSVAnalysisResponse)
+async def upload_and_analyze_csv(
+    hotel_id: int = Form(...),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session)
+):
+    """
+    顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版）
+    
+    - CSVファイルをアップロード
+    - エンコーディング自動判別
+    - AIによるスキーマ推定
+    - 統計情報を計算
+    - AIマーケティングインサイトを生成
+    
+    使用モデル: Gemini 2.5 Flash-Lite
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # ファイルタイプの確認
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
+    
+    try:
+        # ファイルを読み込み
+        file_content = await file.read()
+        
+        # 新しいAnalysisServiceを使用
+        analysis_service = AnalysisService()
+        
+        # 分析実行（スキーマ推定 → 計算 → インサイト生成）
+        statistics, insights = await analysis_service.analyze_csv(file_content)
+        
+        # 分析セッションを作成または更新
         statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
         existing_session = session.exec(statement).first()
         

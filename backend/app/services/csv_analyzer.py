@@ -1,20 +1,86 @@
 import pandas as pd
 import json
+import chardet
 from typing import Dict, Optional, Tuple
-from io import BytesIO
+from io import BytesIO, StringIO
 from datetime import datetime
 import re
 
 
 class CSVAnalyzer:
-    """CSV分析サービス"""
+    """CSV分析サービス（Gemini 2.5 Flash-Lite対応）"""
     
     def __init__(self):
-        pass
+        self.model_name = "gemini-2.5-flash-lite"
+    
+    def _detect_encoding(self, file_content: bytes) -> str:
+        """
+        CSVファイルのエンコーディングを自動判別
+        
+        Args:
+            file_content: ファイルの内容（バイト列）
+        
+        Returns:
+            検出されたエンコーディング名
+        """
+        # chardetで検出を試みる
+        detected = chardet.detect(file_content)
+        encoding = detected.get('encoding', 'utf-8')
+        
+        # よくあるエンコーディングの優先順位リスト
+        encodings_to_try = [
+            encoding,  # 検出されたもの
+            'utf-8',
+            'shift_jis',
+            'cp932',  # Windows版Shift_JIS
+            'euc-jp',
+            'iso-2022-jp'
+        ]
+        
+        # 重複を除去
+        encodings_to_try = list(dict.fromkeys(encodings_to_try))
+        
+        # 各エンコーディングで読み込みを試行
+        for enc in encodings_to_try:
+            try:
+                file_content.decode(enc)
+                return enc
+            except (UnicodeDecodeError, AttributeError):
+                continue
+        
+        # すべて失敗した場合はutf-8をデフォルトで返す
+        return 'utf-8'
+    
+    def _load_csv_from_bytes(self, file_content: bytes) -> pd.DataFrame:
+        """
+        CSVファイルを読み込み（エンコーディング自動判別）
+        
+        Args:
+            file_content: ファイルの内容（バイト列）
+        
+        Returns:
+            pandasデータフレーム
+        """
+        # エンコーディングを検出
+        encoding = self._detect_encoding(file_content)
+        
+        try:
+            # 検出したエンコーディングで読み込み
+            text_content = file_content.decode(encoding)
+            df = pd.read_csv(StringIO(text_content))
+            return df
+        except Exception as e:
+            # 失敗した場合、utf-8でリトライ（エラー無視）
+            try:
+                text_content = file_content.decode('utf-8', errors='ignore')
+                df = pd.read_csv(StringIO(text_content))
+                return df
+            except Exception as e2:
+                raise ValueError(f"CSVファイルの読み込みに失敗しました: {str(e2)}")
     
     async def detect_schema(self, df: pd.DataFrame, llm_client) -> Dict[str, Optional[str]]:
         """
-        LLMを使用してCSVスキーマを推定
+        Gemini 2.5 Flash-Liteを使用してCSVスキーマを推定
         
         Args:
             df: pandasデータフレーム
@@ -24,28 +90,31 @@ class CSVAnalyzer:
             カラム名のマッピング辞書
         """
         columns = df.columns.tolist()
-        sample_data = df.head(3).to_dict('records')
+        sample_data = df.head(10).to_dict('records')
         
-        prompt = f"""
-以下のCSVファイルのカラム情報とサンプルデータから、各カラムの役割を特定してください。
+        system_prompt = """あなたは宿泊予約データ分析の専門家です。
+提示されたCSVデータから、以下の情報を表すカラム名を特定し、正確なJSON形式で返してください。
 
-カラム名: {columns}
+- reservation_date (予約日)
+- checkin_date (宿泊日・チェックイン日)
+- plan_name (プラン名)
+- total_price (合計金額)
+- is_cancelled (キャンセルフラグまたはステータス)
+- guest_age (宿泊者の年齢)
+- num_guests (宿泊人数)
 
-サンプルデータ:
-{json.dumps(sample_data, ensure_ascii=False, indent=2)}
+※データの中身（日付フォーマットや値の傾向）から文脈を読んで判断すること。
+該当するカラムがない場合は null を返してください。"""
+        
+        user_prompt = f"""以下のCSVデータを解析してください。
 
-以下の項目に該当するカラム名を特定し、JSON形式で返してください：
-- reservation_date: 予約日
-- checkin_date: 宿泊日（チェックイン日）
-- plan_name: プラン名
-- is_cancelled: キャンセルフラグ（True/False または 1/0 など）
-- guest_age: 宿泊者の年齢
-- num_guests: 宿泊人数
-- total_price: 合計金額
+【カラム名】
+{columns}
 
-該当するカラムがない場合はnullを返してください。
+【サンプルデータ（先頭10行）】
+{json.dumps(sample_data, ensure_ascii=False, indent=2, default=str)}
 
-出力形式:
+出力形式（必ず以下のJSON形式で返してください）:
 {{
     "reservation_date": "カラム名またはnull",
     "checkin_date": "カラム名またはnull",
@@ -54,27 +123,30 @@ class CSVAnalyzer:
     "guest_age": "カラム名またはnull",
     "num_guests": "カラム名またはnull",
     "total_price": "カラム名またはnull"
-}}
-"""
-        
-        system_prompt = "あなたはデータ分析の専門家です。CSVファイルのスキーマを正確に解析してください。"
+}}"""
         
         response = await llm_client.generate_structured_output(
-            user_prompt=prompt,
-            system_prompt=system_prompt
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_tokens=1024
         )
         
         # JSONをパース
         try:
+            # マークダウンのコードブロックを除去
+            json_text = re.sub(r'```json\s*', '', response)
+            json_text = re.sub(r'```\s*', '', json_text)
+            
             # レスポンスからJSONを抽出
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\{.*\}', json_text, re.DOTALL)
             if json_match:
                 schema_mapping = json.loads(json_match.group())
             else:
-                schema_mapping = json.loads(response)
+                schema_mapping = json.loads(json_text)
             return schema_mapping
         except Exception as e:
             print(f"スキーマ解析エラー: {e}")
+            print(f"LLMレスポンス: {response}")
             # デフォルトのマッピングを返す
             return {
                 "reservation_date": None,
@@ -180,7 +252,7 @@ class CSVAnalyzer:
     
     async def generate_insights(self, statistics: Dict, llm_client) -> str:
         """
-        統計情報からインサイトを生成
+        統計情報からインサイトを生成（Gemini 2.5 Flash-Lite使用）
         
         Args:
             statistics: 統計情報
@@ -189,29 +261,27 @@ class CSVAnalyzer:
         Returns:
             インサイト文章
         """
-        prompt = f"""
-以下の宿泊施設の顧客データ分析結果から、マーケティング施策に活かせるインサイトを日本語で生成してください。
+        system_prompt = """あなたは宿泊業界に精通したマーケティングアナリストです。
+データから実践的なインサイトを導き出し、具体的な施策を提案してください。
 
-【分析結果】
-{json.dumps(statistics, ensure_ascii=False, indent=2)}
-
-以下の観点から分析してください：
-1. 顧客の予約行動パターン（リードタイムなど）
-2. キャンセル傾向と対策
-3. 人気プランの特徴
-4. ターゲット層の特定
-5. 価格設定の妥当性
-
-具体的なマーケティング提案を含めて、800文字程度でまとめてください。
+以下の観点を含めてください：
+1. ターゲット層の特徴
+2. 現状の課題（キャンセル率、リードタイムなど）
+3. 推奨アクション（具体的なマーケティング施策）
 """
         
-        system_prompt = """あなたは宿泊業界に精通したマーケティングアナリストです。
-データから実践的なインサイトを導き出し、具体的な施策を提案してください。"""
+        user_prompt = f"""以下の宿泊施設の顧客データ分析結果から、マーケティング施策に活かせるインサイトを300文字程度で生成してください。
+
+【分析結果】
+{json.dumps(statistics, ensure_ascii=False, indent=2, default=str)}
+
+具体的で実践的な提案をお願いします。"""
         
         insights = await llm_client.generate_text(
-            user_prompt=prompt,
+            user_prompt=user_prompt,
             system_prompt=system_prompt,
-            max_tokens=2000
+            max_tokens=1024,
+            temperature=0.7
         )
         
         return insights
@@ -222,26 +292,26 @@ class CSVAnalyzer:
         llm_client
     ) -> Tuple[Dict, str]:
         """
-        CSVファイルを分析
+        CSVファイルを分析（エンコーディング自動判別対応）
         
         Args:
-            file_content: CSVファイルの内容
+            file_content: CSVファイルの内容（バイト列）
             llm_client: LLMクライアント
         
         Returns:
             (統計情報, インサイト文章) のタプル
         """
-        # CSVを読み込み
-        df = pd.read_csv(BytesIO(file_content))
+        # CSVを読み込み（エンコーディング自動判別）
+        df = self._load_csv_from_bytes(file_content)
         
-        # スキーマを推定
+        # スキーマを推定（Gemini 2.5 Flash-Lite使用）
         schema_mapping = await self.detect_schema(df, llm_client)
         
         # 統計を計算
         statistics = self.calculate_statistics(df, schema_mapping)
         statistics["schema_mapping"] = schema_mapping
         
-        # インサイトを生成
+        # インサイトを生成（Gemini 2.5 Flash-Lite使用）
         insights = await self.generate_insights(statistics, llm_client)
         
         return statistics, insights
