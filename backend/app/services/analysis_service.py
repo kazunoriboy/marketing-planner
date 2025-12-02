@@ -6,86 +6,25 @@ CSVファイルから顧客データを分析し、AIによるインサイトを
 
 import pandas as pd
 import json
-import chardet
 from typing import Dict, Optional, Tuple
-from io import BytesIO, StringIO
-from datetime import datetime
 import re
 
 from app.core.llm import get_llm_client
+from app.services.base_csv_service import BaseCSVService
 
 
-class AnalysisService:
-    """顧客分析サービス（Gemini 2.5 Flash-Lite使用）"""
+class AnalysisService(BaseCSVService):
+    """
+    顧客分析サービス（Gemini 2.5 Flash-Lite使用）
+    
+    BaseCSVServiceを継承し、CSV処理の共通機能を利用
+    """
     
     def __init__(self):
+        super().__init__()
         self.model_name = "gemini-2.5-flash-lite"
     
-    def _detect_encoding(self, file_content: bytes) -> str:
-        """
-        CSVファイルのエンコーディングを自動判別
-        
-        Args:
-            file_content: ファイルの内容（バイト列）
-        
-        Returns:
-            検出されたエンコーディング名
-        """
-        # chardetで検出を試みる
-        detected = chardet.detect(file_content)
-        encoding = detected.get('encoding', 'utf-8')
-        
-        # よくあるエンコーディングの優先順位リスト
-        encodings_to_try = [
-            encoding,  # 検出されたもの
-            'utf-8',
-            'shift_jis',
-            'cp932',  # Windows版Shift_JIS
-            'euc-jp',
-            'iso-2022-jp'
-        ]
-        
-        # 重複を除去
-        encodings_to_try = list(dict.fromkeys(encodings_to_try))
-        
-        # 各エンコーディングで読み込みを試行
-        for enc in encodings_to_try:
-            try:
-                file_content.decode(enc)
-                return enc
-            except (UnicodeDecodeError, AttributeError):
-                continue
-        
-        # すべて失敗した場合はutf-8をデフォルトで返す
-        return 'utf-8'
-    
-    def _load_csv(self, file_content: bytes) -> pd.DataFrame:
-        """
-        CSVファイルを読み込み（エンコーディング自動判別）
-        
-        Args:
-            file_content: ファイルの内容（バイト列）
-        
-        Returns:
-            pandasデータフレーム
-        """
-        # エンコーディングを検出
-        encoding = self._detect_encoding(file_content)
-        
-        try:
-            # 検出したエンコーディングで読み込み
-            text_content = file_content.decode(encoding)
-            df = pd.read_csv(StringIO(text_content))
-            return df
-        except Exception as e:
-            # 失敗した場合、utf-8でリトライ（エラー無視）
-            try:
-                text_content = file_content.decode('utf-8', errors='ignore')
-                df = pd.read_csv(StringIO(text_content))
-                return df
-            except Exception as e2:
-                raise ValueError(f"CSVファイルの読み込みに失敗しました: {str(e2)}")
-    
+    # エンコーディング判別とCSV読み込みはBaseCSVServiceから継承
     async def infer_csv_schema(self, df: pd.DataFrame) -> Dict[str, str]:
         """
         AIによるCSVスキーマの推定（Smart Schema Inference）
@@ -164,6 +103,7 @@ class AnalysisService:
                 "status": None
             }
     
+    # JSON変換はBaseCSVServiceから継承
     def calculate_statistics(
         self,
         df: pd.DataFrame,
@@ -180,7 +120,7 @@ class AnalysisService:
             統計情報辞書
         """
         stats = {
-            "total_records": len(df),
+            "total_records": int(len(df)),
             "schema_mapping": schema_map,
             "date_range": {},
             "cancellation_stats": {},
@@ -268,6 +208,9 @@ class AnalysisService:
         
         except Exception as e:
             print(f"統計計算エラー: {e}")
+        
+        # すべての値をJSON serializable に変換
+        stats = self._convert_to_json_serializable(stats)
         
         return stats
     

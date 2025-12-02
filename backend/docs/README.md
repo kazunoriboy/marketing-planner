@@ -42,6 +42,19 @@
 
 ---
 
+### 📐 [ARCHITECTURE.md](ARCHITECTURE.md)
+**アーキテクチャ設計 - システム設計の詳細**
+
+- CSV処理の設計パターン
+- クラス構造と継承関係
+- 設計の利点（DRY、単一責任等）
+- データフロー
+- 今後の拡張案
+
+**対象読者**: バックエンド開発者、アーキテクト
+
+---
+
 ### 🌐 [API_GUIDE.md](API_GUIDE.md)
 **APIガイド - エンドポイントの使い方**
 
@@ -63,8 +76,9 @@
 
 ### 開発に参加する場合
 1. [QUICKSTART.md](QUICKSTART.md) - 環境構築
-2. [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) - 実装を理解する
-3. [CUSTOMER_ANALYSIS_SPEC.md](CUSTOMER_ANALYSIS_SPEC.md) - 仕様を確認する
+2. [ARCHITECTURE.md](ARCHITECTURE.md) - システム設計を理解する
+3. [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) - 実装を理解する
+4. [CUSTOMER_ANALYSIS_SPEC.md](CUSTOMER_ANALYSIS_SPEC.md) - 仕様を確認する
 
 ### フロントエンド開発の場合
 1. [QUICKSTART.md](QUICKSTART.md) - バックエンドをローカルで起動
