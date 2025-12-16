@@ -149,3 +149,90 @@ def check_hotel_permission(
         return False
     
     return permission.role in required_roles
+
+
+def get_hotel_access_checker(required_roles: Optional[list[str]] = None):
+    """
+    施設アクセス権限チェック依存関数を生成するファクトリ関数
+    
+    Args:
+        required_roles: 必要な権限のリスト。Noneの場合は全ての権限（owner, editor, viewer）を許可
+    
+    Returns:
+        依存関数
+    
+    Usage:
+        @router.get("/hotels/{hotel_id}/data")
+        async def get_hotel_data(
+            hotel_id: int,
+            permission: FacilityAdminHotel = Depends(get_hotel_access_checker())
+        ):
+            # permissionには権限情報が含まれる
+            pass
+        
+        # 特定の権限が必要な場合
+        @router.post("/hotels/{hotel_id}/data")
+        async def update_hotel_data(
+            hotel_id: int,
+            permission: FacilityAdminHotel = Depends(get_hotel_access_checker(["owner", "editor"]))
+        ):
+            pass
+    """
+    # 遅延インポートで循環参照を回避
+    from app.models import FacilityAdminHotel, FacilityAdminHotelRole
+    
+    # デフォルトは全ての権限を許可
+    if required_roles is None:
+        required_roles = [
+            FacilityAdminHotelRole.owner.value,
+            FacilityAdminHotelRole.editor.value,
+            FacilityAdminHotelRole.viewer.value,
+        ]
+    
+    async def require_hotel_access(
+        hotel_id: int,
+        facility_admin = Depends(get_current_facility_admin),
+        session: Session = Depends(get_session)
+    ) -> FacilityAdminHotel:
+        """
+        施設へのアクセス権限をチェックする依存関数
+        
+        Args:
+            hotel_id: 施設ID（パスパラメータから自動取得）
+            facility_admin: 現在の施設管理者
+            session: データベースセッション
+        
+        Returns:
+            FacilityAdminHotel: 権限情報
+        
+        Raises:
+            HTTPException: 権限がない場合は403 Forbidden
+        """
+        permission = session.exec(
+            select(FacilityAdminHotel).where(
+                FacilityAdminHotel.facility_admin_id == facility_admin.id,
+                FacilityAdminHotel.hotel_id == hotel_id
+            )
+        ).first()
+        
+        if permission is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="この施設へのアクセス権限がありません",
+            )
+        
+        if permission.role not in required_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"この操作には {', '.join(required_roles)} のいずれかの権限が必要です",
+            )
+        
+        return permission
+    
+    return require_hotel_access
+
+
+# よく使う権限チェッカーのショートカット
+require_hotel_access = get_hotel_access_checker()  # 全ての権限を許可
+require_hotel_editor = get_hotel_access_checker(["owner", "editor"])  # 編集者以上
+require_hotel_owner = get_hotel_access_checker(["owner"])  # オーナーのみ

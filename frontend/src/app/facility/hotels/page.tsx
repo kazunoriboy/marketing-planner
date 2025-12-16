@@ -13,7 +13,9 @@ import {
   Check,
   Phone,
   Globe,
+  BrainCircuit,
 } from "lucide-react";
+import Link from "next/link";
 
 export default function FacilityHotelsPage() {
   const [hotels, setHotels] = useState<HotelResponse[]>([]);
@@ -151,6 +153,15 @@ export default function FacilityHotelsPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
+                    {/* マーケティングAIへのリンク */}
+                    <Link
+                      href={`/marketing/${hotel.id}/dashboard`}
+                      className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-cyan-500 rounded-md hover:from-purple-600 hover:to-cyan-600 transition-all"
+                      title="マーケティングAI"
+                    >
+                      <BrainCircuit className="h-4 w-4 mr-1" />
+                      マーケティングAI
+                    </Link>
                     {(hotel.role === "owner" || hotel.role === "editor") && (
                       <button
                         onClick={() => setEditingHotel(hotel)}

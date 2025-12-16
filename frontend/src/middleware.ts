@@ -47,6 +47,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // /marketing/* へのアクセス
+  if (pathname.startsWith("/marketing")) {
+    // クライアントサイドでの認証チェックに委ねる
+    // layout.tsxで認証状態と施設へのアクセス権限を確認
+    return NextResponse.next();
+  }
+
   return NextResponse.next();
 }
 

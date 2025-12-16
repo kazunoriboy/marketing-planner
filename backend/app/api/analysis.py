@@ -4,7 +4,7 @@ from typing import List
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
-from app.models import Hotel, AnalysisSession
+from app.models import Hotel, AnalysisSession, FacilityAdmin, FacilityAdminHotel
 from app.schemas.analysis import (
     HotelCreate,
     HotelResponse,
@@ -14,8 +14,237 @@ from app.schemas.analysis import (
 )
 from app.services.csv_analyzer import CSVAnalyzer
 from app.services.analysis_service import AnalysisService
+from app.auth.dependencies import get_current_facility_admin, require_hotel_access
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+
+# ============================================
+# 施設認証付きエンドポイント（マルチテナント対応）
+# ============================================
+
+@router.post("/hotels/{hotel_id}/customer", response_model=CSVAnalysisResponse)
+async def analyze_customer_data_authenticated(
+    hotel_id: int,
+    file: UploadFile = File(...),
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    顧客データ（CSV）を分析（認証付き）
+    
+    - CSVファイルをアップロード
+    - スキーマを自動推定
+    - 統計情報を計算
+    - AIによるインサイトを生成
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # ファイルタイプの確認
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
+    
+    try:
+        # ファイルを読み込み
+        file_content = await file.read()
+        
+        # CSV分析サービスを初期化
+        analyzer = CSVAnalyzer()
+        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        
+        # 分析実行
+        statistics, insights = await analyzer.analyze_csv(file_content, llm_client)
+        
+        # 分析セッションを作成または更新
+        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+        existing_session = session.exec(statement).first()
+        
+        if existing_session:
+            existing_session.csv_statistics = statistics
+            existing_session.csv_insights = insights
+            analysis_session = existing_session
+        else:
+            analysis_session = AnalysisSession(
+                hotel_id=hotel_id,
+                csv_statistics=statistics,
+                csv_insights=insights
+            )
+            session.add(analysis_session)
+        
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return CSVAnalysisResponse(
+            session_id=analysis_session.id,
+            statistics=statistics,
+            insights=insights,
+            created_at=analysis_session.created_at
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析エラー: {str(e)}")
+
+
+@router.post("/hotels/{hotel_id}/upload-csv", response_model=CSVAnalysisResponse)
+async def upload_and_analyze_csv_authenticated(
+    hotel_id: int,
+    file: UploadFile = File(...),
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版、認証付き）
+    
+    - CSVファイルをアップロード
+    - エンコーディング自動判別
+    - AIによるスキーマ推定
+    - 統計情報を計算
+    - AIマーケティングインサイトを生成
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # ファイルタイプの確認
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
+    
+    try:
+        # ファイルを読み込み
+        file_content = await file.read()
+        
+        # 新しいAnalysisServiceを使用
+        analysis_service = AnalysisService()
+        
+        # 分析実行
+        statistics, insights = await analysis_service.analyze_csv(file_content)
+        
+        # 分析セッションを作成または更新
+        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+        existing_session = session.exec(statement).first()
+        
+        if existing_session:
+            existing_session.csv_statistics = statistics
+            existing_session.csv_insights = insights
+            analysis_session = existing_session
+        else:
+            analysis_session = AnalysisSession(
+                hotel_id=hotel_id,
+                csv_statistics=statistics,
+                csv_insights=insights
+            )
+            session.add(analysis_session)
+        
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return CSVAnalysisResponse(
+            session_id=analysis_session.id,
+            statistics=statistics,
+            insights=insights,
+            created_at=analysis_session.created_at
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析エラー: {str(e)}")
+
+
+@router.post("/hotels/{hotel_id}/market", response_model=MarketResearchResponse)
+async def analyze_market_authenticated(
+    hotel_id: int,
+    radius_km: float = 10.0,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    市場調査を実行（認証付き）
+    
+    - 競合施設のリサーチ
+    - 口コミ分析
+    - 地域トレンド分析
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    try:
+        llm_client = get_llm_client()
+        
+        # 競合リサーチ
+        competitors_data = await _research_competitors(hotel.address, radius_km, llm_client)
+        
+        # 口コミ要約
+        reviews_summary = await _analyze_reviews(hotel.address, llm_client)
+        
+        # 地域トレンド分析
+        regional_trends = await _analyze_regional_trends(hotel.address, llm_client)
+        
+        # 分析セッションを更新
+        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+        analysis_session = session.exec(statement).first()
+        
+        if analysis_session:
+            analysis_session.competitors_list = competitors_data
+            analysis_session.reviews_summary = reviews_summary
+            analysis_session.regional_trends = regional_trends
+        else:
+            analysis_session = AnalysisSession(
+                hotel_id=hotel_id,
+                competitors_list=competitors_data,
+                reviews_summary=reviews_summary,
+                regional_trends=regional_trends
+            )
+            session.add(analysis_session)
+        
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return MarketResearchResponse(
+            session_id=analysis_session.id,
+            competitors=competitors_data,
+            reviews_summary=reviews_summary,
+            regional_trends=regional_trends,
+            created_at=analysis_session.created_at
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"市場調査エラー: {str(e)}")
+
+
+@router.get("/hotels/{hotel_id}/session")
+async def get_analysis_session(
+    hotel_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """施設の分析セッションを取得（認証付き）"""
+    statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(statement).first()
+    
+    if not analysis_session:
+        return {"session_id": None, "message": "分析セッションがありません"}
+    
+    return {
+        "session_id": analysis_session.id,
+        "hotel_id": hotel_id,
+        "csv_statistics": analysis_session.csv_statistics,
+        "csv_insights": analysis_session.csv_insights,
+        "competitors_list": analysis_session.competitors_list,
+        "reviews_summary": analysis_session.reviews_summary,
+        "regional_trends": analysis_session.regional_trends,
+        "created_at": analysis_session.created_at,
+        "updated_at": analysis_session.updated_at,
+    }
+
+
+# ============================================
+# 既存エンドポイント（後方互換性のため保持）
+# ============================================
 
 
 @router.post("/hotels", response_model=HotelResponse)

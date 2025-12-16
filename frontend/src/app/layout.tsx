@@ -16,10 +16,12 @@ export default function RootLayout({
 }>) {
   const pathname = usePathname();
   
-  // システムアドミンと施設管理者のパスでは既存のSidebarを表示しない
+  // システムアドミン、施設管理者、マーケティングのパスでは既存のSidebarを表示しない
   const isAdminPath = pathname?.startsWith("/admin");
   const isFacilityPath = pathname?.startsWith("/facility");
-  const showSidebar = !isAdminPath && !isFacilityPath;
+  const isMarketingPath = pathname?.startsWith("/marketing");
+  const isRootPath = pathname === "/";
+  const showSidebar = !isAdminPath && !isFacilityPath && !isMarketingPath && !isRootPath;
 
   return (
     <html lang="ja" suppressHydrationWarning>

@@ -10,7 +10,17 @@ from typing import Generator
 
 from app.main import app
 from app.core.database import get_session
-from app.models import Hotel, AnalysisSession, MarketingPlan, CreativeAsset, PlanStatus
+from app.models import (
+    Hotel,
+    AnalysisSession,
+    MarketingPlan,
+    CreativeAsset,
+    PlanStatus,
+    FacilityAdmin,
+    FacilityAdminHotel,
+    FacilityAdminHotelRole,
+    SystemAdmin,
+)
 
 
 # テスト用のインメモリSQLiteデータベース
