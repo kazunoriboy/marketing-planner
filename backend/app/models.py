@@ -1,7 +1,10 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON
 from enum import Enum
+
+if TYPE_CHECKING:
+    from typing import List
 
 
 class PlanStatus(str, Enum):
@@ -9,6 +12,68 @@ class PlanStatus(str, Enum):
     draft = "draft"
     approved = "approved"
 
+
+class FacilityAdminHotelRole(str, Enum):
+    """施設管理者の施設に対する権限"""
+    owner = "owner"      # オーナー（全権限）
+    editor = "editor"    # 編集者（編集権限）
+    viewer = "viewer"    # 閲覧者（閲覧のみ）
+
+
+# ============================================
+# 認証関連モデル
+# ============================================
+
+class SystemAdmin(SQLModel, table=True):
+    """システム管理者テーブル"""
+    __tablename__ = "system_admins"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    name: str
+    is_active: bool = Field(default=True)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FacilityAdmin(SQLModel, table=True):
+    """施設管理者テーブル"""
+    __tablename__ = "facility_admins"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    name: str
+    is_active: bool = Field(default=True)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    hotel_permissions: list["FacilityAdminHotel"] = Relationship(back_populates="facility_admin")
+
+
+class FacilityAdminHotel(SQLModel, table=True):
+    """施設管理者と施設の紐付けテーブル（多対多）"""
+    __tablename__ = "facility_admin_hotels"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    facility_admin_id: int = Field(foreign_key="facility_admins.id", index=True)
+    hotel_id: int = Field(foreign_key="hotels.id", index=True)
+    role: FacilityAdminHotelRole = Field(default=FacilityAdminHotelRole.viewer)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    facility_admin: FacilityAdmin = Relationship(back_populates="hotel_permissions")
+    hotel: "Hotel" = Relationship(back_populates="admin_permissions")
+
+
+# ============================================
+# 既存モデル
+# ============================================
 
 class Hotel(SQLModel, table=True):
     """宿泊施設情報テーブル"""
@@ -19,7 +84,6 @@ class Hotel(SQLModel, table=True):
     address: str
     postal_code: Optional[str] = None
     phone: Optional[str] = None
-    email: Optional[str] = None
     website: Optional[str] = None
     
     # 宿の特徴や強み（JSON形式）
@@ -31,6 +95,7 @@ class Hotel(SQLModel, table=True):
     
     # リレーション
     analysis_sessions: list["AnalysisSession"] = Relationship(back_populates="hotel")
+    admin_permissions: list["FacilityAdminHotel"] = Relationship(back_populates="hotel")
 
 
 class AnalysisSession(SQLModel, table=True):

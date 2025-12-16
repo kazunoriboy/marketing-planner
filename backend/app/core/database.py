@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv(
 # エンジンの作成
 engine = create_engine(
     DATABASE_URL,
-    echo=True,  # 開発時はSQLログを出力
+    echo=False,  # True: SQLログを出力（デバッグ用）
     pool_pre_ping=True  # 接続の健全性チェック
 )
 

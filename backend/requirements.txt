@@ -9,6 +9,10 @@ sqlmodel
 psycopg2-binary
 alembic
 
+# Authentication
+python-jose[cryptography]
+bcrypt
+
 # Data Processing
 pandas
 openpyxl
@@ -23,6 +27,7 @@ google-generativeai
 # Utilities
 pydantic
 pydantic-settings
+email-validator
 
 # Testing
 pytest

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from app.core.database import create_db_and_tables
 from app.core.config import settings
 from app.api import analysis, planning, creative
+from app.api import admin_auth, admin_users, facility_auth, facility_hotels
 
 
 @asynccontextmanager
@@ -38,10 +39,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# APIルーターの登録
+# APIルーターの登録（既存）
 app.include_router(analysis.router)
 app.include_router(planning.router)
 app.include_router(creative.router)
+
+# APIルーターの登録（認証関連）
+app.include_router(admin_auth.router)
+app.include_router(admin_users.router)
+app.include_router(facility_auth.router)
+app.include_router(facility_hotels.router)
 
 
 @app.get("/")
