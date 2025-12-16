@@ -199,12 +199,18 @@ class AnalysisService(BaseCSVService):
             price_col = schema_map.get("total_price")
             if price_col and price_col in df_work.columns:
                 df_work[price_col] = pd.to_numeric(df_work[price_col], errors='coerce')
-                stats["price_stats"] = {
-                    "average": round(df_work[price_col].mean(), 0) if pd.notna(df_work[price_col].mean()) else None,
-                    "min": round(df_work[price_col].min(), 0) if pd.notna(df_work[price_col].min()) else None,
-                    "max": round(df_work[price_col].max(), 0) if pd.notna(df_work[price_col].max()) else None,
-                    "median": round(df_work[price_col].median(), 0) if pd.notna(df_work[price_col].median()) else None
-                }
+                # 0以下の値を除外（キャンセル等で金額が0になっているデータを除く）
+                valid_prices = df_work[df_work[price_col] > 0][price_col]
+                
+                if len(valid_prices) > 0:
+                    stats["price_stats"] = {
+                        "average": round(valid_prices.mean(), 0) if pd.notna(valid_prices.mean()) else None,
+                        "min": round(valid_prices.min(), 0) if pd.notna(valid_prices.min()) else None,
+                        "max": round(valid_prices.max(), 0) if pd.notna(valid_prices.max()) else None,
+                        "median": round(valid_prices.median(), 0) if pd.notna(valid_prices.median()) else None,
+                        "valid_count": int(len(valid_prices)),
+                        "excluded_count": int(len(df_work) - len(valid_prices))
+                    }
         
         except Exception as e:
             print(f"統計計算エラー: {e}")

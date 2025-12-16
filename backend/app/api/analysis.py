@@ -44,7 +44,13 @@ async def analyze_customer_data_authenticated(
         raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
     
     # ファイルタイプの確認
-    if not file.filename.endswith('.csv'):
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+    is_csv = (
+        filename.lower().endswith('.csv') or
+        content_type in ["text/csv", "application/csv", "text/plain"]
+    )
+    if not is_csv:
         raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
     
     try:
@@ -110,7 +116,16 @@ async def upload_and_analyze_csv_authenticated(
         raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
     
     # ファイルタイプの確認
-    if not file.filename.endswith('.csv'):
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+    
+    # ファイル名またはContent-Typeで検証
+    is_csv = (
+        filename.lower().endswith('.csv') or
+        content_type in ["text/csv", "application/csv", "text/plain"]
+    )
+    
+    if not is_csv:
         raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
     
     try:
@@ -311,7 +326,13 @@ async def analyze_customer_data(
         raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
     
     # ファイルタイプの確認
-    if not file.filename.endswith('.csv'):
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+    is_csv = (
+        filename.lower().endswith('.csv') or
+        content_type in ["text/csv", "application/csv", "text/plain"]
+    )
+    if not is_csv:
         raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
     
     try:
@@ -381,7 +402,13 @@ async def upload_and_analyze_csv(
         raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
     
     # ファイルタイプの確認
-    if not file.filename.endswith('.csv'):
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+    is_csv = (
+        filename.lower().endswith('.csv') or
+        content_type in ["text/csv", "application/csv", "text/plain"]
+    )
+    if not is_csv:
         raise HTTPException(status_code=400, detail="CSVファイルをアップロードしてください")
     
     try:
