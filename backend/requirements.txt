@@ -23,3 +23,8 @@ google-generativeai
 # Utilities
 pydantic
 pydantic-settings
+
+# Testing
+pytest
+pytest-asyncio
+httpx
