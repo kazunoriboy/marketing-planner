@@ -1,7 +1,16 @@
 import json
 import re
-from typing import List, Dict
-from app.models import AnalysisSession
+from typing import List, Dict, Any, Literal
+from app.models import AnalysisSession, MarketingPlan
+
+
+# セクション名の日本語マッピング
+SECTION_LABELS = {
+    "concept": "コンセプト",
+    "target_audience": "ターゲット顧客",
+    "price_range": "価格帯",
+    "benefits": "特典・特徴",
+}
 
 
 class PlanGenerator:
@@ -9,6 +18,152 @@ class PlanGenerator:
     
     def __init__(self):
         pass
+    
+    async def edit_section(
+        self,
+        plan: MarketingPlan,
+        section: Literal["concept", "target_audience", "price_range", "benefits"],
+        instruction: str,
+        llm_client
+    ) -> Dict[str, Any]:
+        """
+        プランの特定セクションを修正指示に基づいて、プラン全体を調整して再生成
+        
+        Args:
+            plan: 現在のマーケティングプラン
+            section: 修正の起点となるセクション
+            instruction: 修正指示
+            llm_client: LLMクライアント
+        
+        Returns:
+            修正されたプラン全体のデータ
+        """
+        # プロンプトを作成
+        prompt = self._create_plan_edit_prompt(
+            plan=plan,
+            section=section,
+            instruction=instruction
+        )
+        
+        # LLMで再生成
+        response = await llm_client.generate_structured_output(
+            user_prompt=prompt,
+            system_prompt=self._get_plan_edit_system_prompt(),
+            max_tokens=4000
+        )
+        
+        # レスポンスをパース
+        edited_plan = self._parse_plan_edit_response(response)
+        
+        return edited_plan
+    
+    def _create_plan_edit_prompt(
+        self,
+        plan: MarketingPlan,
+        section: str,
+        instruction: str
+    ) -> str:
+        """プラン全体編集用のプロンプトを作成"""
+        section_label = SECTION_LABELS.get(section, section)
+        
+        # 現在のプラン全体をJSON形式で表示
+        current_plan = {
+            "plan_name": plan.plan_name,
+            "concept": plan.concept,
+            "target_audience": plan.target_audience,
+            "price_range": plan.price_range,
+            "benefits": plan.benefits,
+            "strategy_3c": plan.strategy_3c,
+            "strategy_pest": plan.strategy_pest,
+        }
+        current_plan_str = json.dumps(current_plan, ensure_ascii=False, indent=2)
+        
+        return f"""
+以下のマーケティングプランを修正してください。
+
+【現在のプラン】
+{current_plan_str}
+
+【修正指示】
+「{section_label}」について: {instruction}
+
+【重要な注意事項】
+- 上記の修正指示に基づいて、プラン全体の一貫性を保つように調整してください
+- プラン名、コンセプト、ターゲット顧客、価格帯の根拠、特典など、関連するすべての箇所を修正してください
+- 修正指示に関係のない部分でも、一貫性を保つために必要な調整を行ってください
+- 3C分析とPEST分析も必要に応じて調整してください
+
+【出力形式】
+以下のJSON形式で出力してください：
+{{
+    "plan_name": "修正後のプラン名",
+    "concept": "修正後のコンセプト（200文字程度）",
+    "target_audience": {{
+        "age_range": "対象年齢層",
+        "demographics": "デモグラフィック特性",
+        "psychographics": "サイコグラフィック特性",
+        "needs": ["ニーズ1", "ニーズ2"]
+    }},
+    "price_range": {{
+        "min": 最低価格,
+        "max": 最高価格,
+        "recommended": 推奨価格,
+        "rationale": "価格設定の根拠"
+    }},
+    "benefits": {{
+        "main_benefits": ["特典1", "特典2", "特典3"],
+        "unique_value": "独自の価値提案",
+        "amenities": ["アメニティ1", "アメニティ2"]
+    }},
+    "strategy_3c": {{
+        "customer": "顧客分析",
+        "competitor": "競合分析",
+        "company": "自社の強み"
+    }},
+    "strategy_pest": {{
+        "political": "政治的要因",
+        "economic": "経済的要因",
+        "social": "社会的要因",
+        "technological": "技術的要因"
+    }}
+}}
+"""
+    
+    def _get_plan_edit_system_prompt(self) -> str:
+        """プラン編集用のシステムプロンプト"""
+        return """あなたは宿泊業界の経験豊富なマーケティングストラテジストです。
+ユーザーの修正指示に従って、マーケティングプラン全体を調整してください。
+
+重要なポイント：
+1. 修正指示に基づいて、プラン全体の一貫性を保つように調整してください
+2. プラン名、コンセプト、ターゲット、価格根拠、特典など、関連するすべての箇所を修正してください
+3. 実現可能で具体的な内容にしてください
+4. 必ず指定されたJSON形式で出力してください"""
+    
+    def _parse_plan_edit_response(self, response: str) -> Dict[str, Any]:
+        """プラン編集レスポンスをパース"""
+        try:
+            # JSONを抽出
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                data = json.loads(response)
+            
+            # 必須フィールドの確認
+            required_fields = ["plan_name", "concept", "target_audience", "price_range", "benefits", "strategy_3c", "strategy_pest"]
+            for field in required_fields:
+                if field not in data:
+                    raise ValueError(f"必須フィールド '{field}' が見つかりません")
+            
+            return data
+        
+        except json.JSONDecodeError as e:
+            print(f"プラン編集レスポンスJSONパースエラー: {e}")
+            raise ValueError(f"修正結果の解析に失敗しました: JSONの形式が不正です")
+        except Exception as e:
+            print(f"プラン編集レスポンス解析エラー: {e}")
+            raise ValueError(f"修正結果の解析に失敗しました: {str(e)}")
     
     async def generate_plans(
         self,

@@ -8,7 +8,8 @@ from app.models import AnalysisSession, MarketingPlan, PlanStatus, Hotel, Facili
 from app.schemas.planning import (
     PlanGenerationRequest,
     MarketingPlanResponse,
-    PlanApprovalRequest
+    PlanApprovalRequest,
+    PlanSectionEditRequest
 )
 from app.services.plan_generator import PlanGenerator
 from app.auth.dependencies import require_hotel_access, require_hotel_editor
@@ -184,6 +185,68 @@ async def delete_plan_authenticated(
     session.commit()
     
     return {"message": "プランを削除しました", "plan_id": plan_id}
+
+
+@router.put("/hotels/{hotel_id}/plans/{plan_id}/edit-section", response_model=MarketingPlanResponse)
+async def edit_plan_section(
+    hotel_id: int,
+    plan_id: int,
+    request: PlanSectionEditRequest,
+    permission: FacilityAdminHotel = Depends(require_hotel_editor),
+    session: Session = Depends(get_session)
+):
+    """
+    プランを修正指示に基づいて全体調整（認証付き、編集者以上）
+    
+    - section: 修正の起点となるセクション（concept, target_audience, price_range, benefits）
+    - instruction: 修正指示（例: "地元の名士との交流を削除して、料理体験に焦点を当てて"）
+    
+    指定されたセクションの修正指示に基づいて、プラン全体の一貫性を保つように調整します。
+    プラン名、コンセプト、ターゲット顧客、価格帯の根拠、特典など、関連するすべての箇所が更新されます。
+    """
+    # 施設の分析セッションを取得
+    statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(statement).first()
+    
+    if not analysis_session:
+        raise HTTPException(status_code=404, detail="分析セッションが見つかりません")
+    
+    plan = session.get(MarketingPlan, plan_id)
+    if not plan or plan.analysis_session_id != analysis_session.id:
+        raise HTTPException(status_code=404, detail="プランが見つかりません")
+    
+    try:
+        # プラン生成サービスを初期化
+        generator = PlanGenerator()
+        llm_client = get_llm_client()
+        
+        # プラン全体を修正
+        edited_plan_data = await generator.edit_section(
+            plan=plan,
+            section=request.section,
+            instruction=request.instruction,
+            llm_client=llm_client
+        )
+        
+        # プラン全体を更新
+        plan.plan_name = edited_plan_data["plan_name"]
+        plan.concept = edited_plan_data["concept"]
+        plan.target_audience = edited_plan_data["target_audience"]
+        plan.price_range = edited_plan_data["price_range"]
+        plan.benefits = edited_plan_data["benefits"]
+        plan.strategy_3c = edited_plan_data["strategy_3c"]
+        plan.strategy_pest = edited_plan_data["strategy_pest"]
+        
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+        
+        return plan
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"プラン修正エラー: {str(e)}")
 
 
 # ============================================

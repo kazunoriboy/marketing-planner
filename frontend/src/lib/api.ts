@@ -737,6 +737,25 @@ export const marketingApi = {
     );
   },
 
+  /**
+   * プランのセクションを修正
+   */
+  async editPlanSection(
+    hotelId: number,
+    planId: number,
+    section: "concept" | "target_audience" | "price_range" | "benefits",
+    instruction: string
+  ): Promise<MarketingPlan> {
+    return apiRequest<MarketingPlan>(
+      `/api/planning/hotels/${hotelId}/plans/${planId}/edit-section`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ section, instruction }),
+      },
+      "facility"
+    );
+  },
+
   // ============================================
   // クリエイティブ API
   // ============================================

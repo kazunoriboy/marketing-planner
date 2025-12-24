@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare } from "lucide-react";
+import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, MarketingPlan, CreativeAsset } from "@/lib/api";
+import Link from "next/link";
 
 export default function ContentPage() {
   const { hotel, hotelId } = useHotel();
-  const [plans, setPlans] = useState<MarketingPlan[]>([]);
+  const [allPlans, setAllPlans] = useState<MarketingPlan[]>([]);
+  const [approvedPlans, setApprovedPlans] = useState<MarketingPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<MarketingPlan | null>(null);
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,13 +24,13 @@ export default function ContentPage() {
     async function loadData() {
       try {
         const plansData = await marketingApi.listPlans(hotelId);
-        setPlans(plansData);
-        // 承認済みプランがあれば選択
-        const approvedPlan = plansData.find((p) => p.status === "approved");
-        if (approvedPlan) {
-          setSelectedPlan(approvedPlan);
-        } else if (plansData.length > 0) {
-          setSelectedPlan(plansData[0]);
+        setAllPlans(plansData);
+        // 承認済みプランのみをフィルタリング
+        const approved = plansData.filter((p) => p.status === "approved");
+        setApprovedPlans(approved);
+        // 承認済みプランがあれば最初のものを選択
+        if (approved.length > 0) {
+          setSelectedPlan(approved[0]);
         }
       } catch (error) {
         console.error("Failed to load plans:", error);
@@ -84,12 +86,43 @@ export default function ContentPage() {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
         </div>
-      ) : plans.length === 0 ? (
+      ) : allPlans.length === 0 ? (
         <div className="glass-card p-8 text-center">
           <Wand2 className="w-16 h-16 text-slate-500 mx-auto mb-4" />
-          <p className="text-slate-400">
-            コンテンツを生成するには、先に「プランを立てる」でマーケティングプランを作成してください。
+          <h3 className="text-xl font-bold text-white mb-3">プランがありません</h3>
+          <p className="text-slate-400 mb-6">
+            コンテンツを生成するには、先にマーケティングプランを作成してください。
           </p>
+          <Link
+            href={`/marketing/${hotelId}/planner`}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold"
+          >
+            <Wand2 className="w-5 h-5" />
+            プランを作成する
+          </Link>
+        </div>
+      ) : approvedPlans.length === 0 ? (
+        <div className="glass-card p-8 text-center">
+          <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-white mb-3">承認済みのプランがありません</h3>
+          <p className="text-slate-400 mb-4">
+            コンテンツを生成するには、マーケティングプランを承認する必要があります。
+          </p>
+          <div className="bg-white/5 rounded-lg p-4 mb-6 text-left max-w-md mx-auto">
+            <p className="text-sm text-slate-300 mb-2">
+              <span className="text-yellow-400 font-semibold">{allPlans.length}件</span>のドラフトプランがあります
+            </p>
+            <p className="text-xs text-slate-500">
+              「プランを立てる」ページでプランを確認し、承認してください。
+            </p>
+          </div>
+          <Link
+            href={`/marketing/${hotelId}/planner`}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold"
+          >
+            <CheckCircle className="w-5 h-5" />
+            プランを承認する
+          </Link>
         </div>
       ) : (
         <>
@@ -103,22 +136,25 @@ export default function ContentPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
                 <label className="block text-slate-300 text-sm mb-2">
-                  マーケティングプラン
+                  マーケティングプラン（承認済みのみ）
                 </label>
                 <select
                   value={selectedPlan?.id || ""}
                   onChange={(e) => {
-                    const plan = plans.find((p) => p.id === Number(e.target.value));
+                    const plan = approvedPlans.find((p) => p.id === Number(e.target.value));
                     setSelectedPlan(plan || null);
                   }}
                   className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white"
                 >
-                  {plans.map((plan) => (
+                  {approvedPlans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
-                      {plan.plan_name} {plan.status === "approved" ? "✓" : "(ドラフト)"}
+                      ✓ {plan.plan_name}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  {approvedPlans.length}件の承認済みプランから選択
+                </p>
               </div>
 
               <div>
@@ -340,4 +376,5 @@ export default function ContentPage() {
     </section>
   );
 }
+
 

@@ -1,9 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe } from "lucide-react";
+import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, MarketingPlan, AnalysisSession } from "@/lib/api";
+
+// セクションの型
+type EditableSection = "concept" | "target_audience" | "price_range" | "benefits";
+
+// セクションラベル
+const SECTION_LABELS: Record<EditableSection, string> = {
+  concept: "コンセプト",
+  target_audience: "ターゲット顧客",
+  price_range: "価格帯",
+  benefits: "特典・特徴",
+};
 
 // 型定義
 interface TargetAudience {
@@ -52,6 +63,11 @@ export default function PlannerPage() {
   const [generating, setGenerating] = useState(false);
   const [numPlans, setNumPlans] = useState(3);
   const [selectedPlan, setSelectedPlan] = useState<MarketingPlan | null>(null);
+  
+  // セクション編集用のstate
+  const [editingSection, setEditingSection] = useState<EditableSection | null>(null);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [editingLoading, setEditingLoading] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -105,6 +121,39 @@ export default function PlannerPage() {
       }
     } catch (error) {
       console.error("Delete failed:", error);
+    }
+  };
+
+  const handleStartEdit = (section: EditableSection) => {
+    setEditingSection(section);
+    setEditInstruction("");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSection(null);
+    setEditInstruction("");
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!selectedPlan || !editingSection || !editInstruction.trim()) return;
+    
+    setEditingLoading(true);
+    try {
+      const updated = await marketingApi.editPlanSection(
+        hotelId,
+        selectedPlan.id,
+        editingSection,
+        editInstruction
+      );
+      setPlans((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setSelectedPlan(updated);
+      setEditingSection(null);
+      setEditInstruction("");
+    } catch (error) {
+      console.error("Section edit failed:", error);
+      alert("修正に失敗しました。もう一度お試しください。");
+    } finally {
+      setEditingLoading(false);
     }
   };
 
@@ -272,18 +321,80 @@ export default function PlannerPage() {
 
                 {/* コンセプト */}
                 <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-white mb-2">コンセプト</h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-lg font-semibold text-white">コンセプト</h4>
+                    {editingSection !== "concept" && (
+                      <button
+                        onClick={() => handleStartEdit("concept")}
+                        className="flex items-center gap-1 px-3 py-1 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        修正
+                      </button>
+                    )}
+                  </div>
                   <p className="text-slate-300 p-4 bg-white/5 rounded-lg">
                     {selectedPlan.concept}
                   </p>
+                  {editingSection === "concept" && (
+                    <div className="mt-3 p-4 bg-white/5 rounded-lg border border-purple-500/30">
+                      <p className="text-sm text-slate-400 mb-2">修正指示を入力してください：</p>
+                      <textarea
+                        value={editInstruction}
+                        onChange={(e) => setEditInstruction(e.target.value)}
+                        placeholder="例: 地元の名士との交流を削除して、地元の食材を使った料理体験に焦点を当てて"
+                        className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 resize-none"
+                        rows={3}
+                        disabled={editingLoading}
+                      />
+                      <div className="flex justify-end gap-2 mt-3">
+                        <button
+                          onClick={handleCancelEdit}
+                          disabled={editingLoading}
+                          className="flex items-center gap-1 px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          <X className="w-4 h-4" />
+                          キャンセル
+                        </button>
+                        <button
+                          onClick={handleSubmitEdit}
+                          disabled={editingLoading || !editInstruction.trim()}
+                          className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gradient-to-r from-purple-500 to-cyan-500 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-colors disabled:opacity-50"
+                        >
+                          {editingLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              修正中...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4" />
+                              修正を実行
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ターゲット顧客 */}
                 {selectedPlan.target_audience && Object.keys(selectedPlan.target_audience).length > 0 && (
                   <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-5 h-5 text-blue-400" />
-                      <h4 className="text-lg font-semibold text-white">ターゲット顧客</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-5 h-5 text-blue-400" />
+                        <h4 className="text-lg font-semibold text-white">ターゲット顧客</h4>
+                      </div>
+                      {editingSection !== "target_audience" && (
+                        <button
+                          onClick={() => handleStartEdit("target_audience")}
+                          className="flex items-center gap-1 px-3 py-1 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          修正
+                        </button>
+                      )}
                     </div>
                     <div className="p-4 bg-white/5 rounded-lg space-y-3">
                       {(() => {
@@ -324,15 +435,66 @@ export default function PlannerPage() {
                         );
                       })()}
                     </div>
+                    {editingSection === "target_audience" && (
+                      <div className="mt-3 p-4 bg-white/5 rounded-lg border border-blue-500/30">
+                        <p className="text-sm text-slate-400 mb-2">修正指示を入力してください：</p>
+                        <textarea
+                          value={editInstruction}
+                          onChange={(e) => setEditInstruction(e.target.value)}
+                          placeholder="例: ターゲット年齢層を40-60代に変更して、富裕層向けにして"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                          rows={3}
+                          disabled={editingLoading}
+                        />
+                        <div className="flex justify-end gap-2 mt-3">
+                          <button
+                            onClick={handleCancelEdit}
+                            disabled={editingLoading}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <X className="w-4 h-4" />
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={handleSubmitEdit}
+                            disabled={editingLoading || !editInstruction.trim()}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gradient-to-r from-purple-500 to-cyan-500 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-colors disabled:opacity-50"
+                          >
+                            {editingLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                修正中...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-4 h-4" />
+                                修正を実行
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* 価格帯 */}
                 {selectedPlan.price_range && Object.keys(selectedPlan.price_range).length > 0 && (
                   <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <DollarSign className="w-5 h-5 text-green-400" />
-                      <h4 className="text-lg font-semibold text-white">価格帯</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="w-5 h-5 text-green-400" />
+                        <h4 className="text-lg font-semibold text-white">価格帯</h4>
+                      </div>
+                      {editingSection !== "price_range" && (
+                        <button
+                          onClick={() => handleStartEdit("price_range")}
+                          className="flex items-center gap-1 px-3 py-1 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          修正
+                        </button>
+                      )}
                     </div>
                     <div className="p-4 bg-white/5 rounded-lg">
                       {(() => {
@@ -369,15 +531,66 @@ export default function PlannerPage() {
                         );
                       })()}
                     </div>
+                    {editingSection === "price_range" && (
+                      <div className="mt-3 p-4 bg-white/5 rounded-lg border border-green-500/30">
+                        <p className="text-sm text-slate-400 mb-2">修正指示を入力してください：</p>
+                        <textarea
+                          value={editInstruction}
+                          onChange={(e) => setEditInstruction(e.target.value)}
+                          placeholder="例: 推奨価格を15000円に下げて、繁忙期と閑散期で価格差をつけて"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-green-500 resize-none"
+                          rows={3}
+                          disabled={editingLoading}
+                        />
+                        <div className="flex justify-end gap-2 mt-3">
+                          <button
+                            onClick={handleCancelEdit}
+                            disabled={editingLoading}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <X className="w-4 h-4" />
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={handleSubmitEdit}
+                            disabled={editingLoading || !editInstruction.trim()}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gradient-to-r from-purple-500 to-cyan-500 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-colors disabled:opacity-50"
+                          >
+                            {editingLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                修正中...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-4 h-4" />
+                                修正を実行
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* 特典 */}
                 {selectedPlan.benefits && Object.keys(selectedPlan.benefits).length > 0 && (
                   <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Gift className="w-5 h-5 text-pink-400" />
-                      <h4 className="text-lg font-semibold text-white">特典・特徴</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Gift className="w-5 h-5 text-pink-400" />
+                        <h4 className="text-lg font-semibold text-white">特典・特徴</h4>
+                      </div>
+                      {editingSection !== "benefits" && (
+                        <button
+                          onClick={() => handleStartEdit("benefits")}
+                          className="flex items-center gap-1 px-3 py-1 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          修正
+                        </button>
+                      )}
                     </div>
                     <div className="p-4 bg-white/5 rounded-lg space-y-4">
                       {(() => {
@@ -419,6 +632,46 @@ export default function PlannerPage() {
                         );
                       })()}
                     </div>
+                    {editingSection === "benefits" && (
+                      <div className="mt-3 p-4 bg-white/5 rounded-lg border border-pink-500/30">
+                        <p className="text-sm text-slate-400 mb-2">修正指示を入力してください：</p>
+                        <textarea
+                          value={editInstruction}
+                          onChange={(e) => setEditInstruction(e.target.value)}
+                          placeholder="例: 朝食の特典を削除して、代わりに温泉入り放題と個室での夕食を追加して"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 resize-none"
+                          rows={3}
+                          disabled={editingLoading}
+                        />
+                        <div className="flex justify-end gap-2 mt-3">
+                          <button
+                            onClick={handleCancelEdit}
+                            disabled={editingLoading}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <X className="w-4 h-4" />
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={handleSubmitEdit}
+                            disabled={editingLoading || !editInstruction.trim()}
+                            className="flex items-center gap-1 px-4 py-2 text-sm text-white bg-gradient-to-r from-purple-500 to-cyan-500 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-colors disabled:opacity-50"
+                          >
+                            {editingLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                修正中...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-4 h-4" />
+                                修正を実行
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
