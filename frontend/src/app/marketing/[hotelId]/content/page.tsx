@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2 } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, MarketingPlan, CreativeAsset } from "@/lib/api";
+import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse } from "@/lib/api";
 import Link from "next/link";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function ContentPage() {
-  const { hotel, hotelId } = useHotel();
+  const { hotel: initialHotel, hotelId } = useHotel();
+  const [hotel, setHotel] = useState<HotelResponse>(initialHotel);
   const [allPlans, setAllPlans] = useState<MarketingPlan[]>([]);
   const [approvedPlans, setApprovedPlans] = useState<MarketingPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<MarketingPlan | null>(null);
@@ -19,6 +23,17 @@ export default function ContentPage() {
     generate_images: true,
     generate_ad_copy: true,
   });
+  
+  // プレビュー関連のstate
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [savingLp, setSavingLp] = useState(false);
+  
+  // CV URL設定モーダル関連のstate
+  const [showCvUrlModal, setShowCvUrlModal] = useState(false);
+  const [cvUrlInput, setCvUrlInput] = useState("");
+  const [savingCvUrl, setSavingCvUrl] = useState(false);
+  const [cvUrlError, setCvUrlError] = useState("");
 
   useEffect(() => {
     async function loadData() {
@@ -59,6 +74,20 @@ export default function ContentPage() {
 
   const handleGenerate = async () => {
     if (!selectedPlan) return;
+    
+    // LP生成時にCV URLが必須かチェック
+    if (generateOptions.generate_lp && !hotel.cv_url) {
+      setShowCvUrlModal(true);
+      setCvUrlInput("");
+      setCvUrlError("");
+      return;
+    }
+    
+    await executeGenerate();
+  };
+
+  const executeGenerate = async () => {
+    if (!selectedPlan) return;
     setGenerating(true);
     try {
       const newAsset = await marketingApi.generateCreative(hotelId, {
@@ -70,6 +99,96 @@ export default function ContentPage() {
       console.error("Generation failed:", error);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleSaveCvUrl = async () => {
+    if (!cvUrlInput.trim()) {
+      setCvUrlError("CV用URLを入力してください");
+      return;
+    }
+    
+    // 簡易的なURL検証
+    try {
+      new URL(cvUrlInput);
+    } catch {
+      setCvUrlError("有効なURLを入力してください");
+      return;
+    }
+    
+    setSavingCvUrl(true);
+    setCvUrlError("");
+    
+    try {
+      const updatedHotel = await facilityApi.updateHotel(hotelId, {
+        cv_url: cvUrlInput,
+      });
+      setHotel(updatedHotel);
+      setShowCvUrlModal(false);
+      
+      // CV URL保存後、自動的にコンテンツ生成を開始
+      await executeGenerate();
+    } catch (error) {
+      console.error("Failed to save CV URL:", error);
+      setCvUrlError("CV URLの保存に失敗しました");
+    } finally {
+      setSavingCvUrl(false);
+    }
+  };
+
+  // LPプレビューを開く
+  const handleOpenPreview = async () => {
+    const asset = assets[0];
+    if (!asset || !asset.lp_source_code) return;
+    
+    // 既にプレビューURLがある場合はそれを使用
+    if (asset.lp_preview_url) {
+      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}`);
+      setShowPreviewModal(true);
+      return;
+    }
+    
+    // プレビューURLがない場合は保存APIを呼び出す
+    setSavingLp(true);
+    try {
+      const result = await marketingApi.saveLpToFile(hotelId, asset.id);
+      const fullUrl = `${API_BASE_URL}${result.preview_url}`;
+      setPreviewUrl(fullUrl);
+      setShowPreviewModal(true);
+      // アセットを更新
+      setAssets([{ ...asset, lp_preview_url: result.preview_url }]);
+    } catch (error) {
+      console.error("Failed to save LP:", error);
+      alert("LPの保存に失敗しました");
+    } finally {
+      setSavingLp(false);
+    }
+  };
+
+  // 新しいタブでプレビューを開く
+  const handleOpenInNewTab = async () => {
+    const asset = assets[0];
+    if (!asset || !asset.lp_source_code) return;
+    
+    // 既にプレビューURLがある場合はそれを使用
+    if (asset.lp_preview_url) {
+      window.open(`${API_BASE_URL}${asset.lp_preview_url}`, "_blank");
+      return;
+    }
+    
+    // プレビューURLがない場合は保存APIを呼び出す
+    setSavingLp(true);
+    try {
+      const result = await marketingApi.saveLpToFile(hotelId, asset.id);
+      const fullUrl = `${API_BASE_URL}${result.preview_url}`;
+      window.open(fullUrl, "_blank");
+      // アセットを更新
+      setAssets([{ ...asset, lp_preview_url: result.preview_url }]);
+    } catch (error) {
+      console.error("Failed to save LP:", error);
+      alert("LPの保存に失敗しました");
+    } finally {
+      setSavingLp(false);
     }
   };
 
@@ -175,6 +294,9 @@ export default function ContentPage() {
                       className="rounded"
                     />
                     ランディングページ
+                    {generateOptions.generate_lp && !hotel.cv_url && (
+                      <span className="text-xs text-yellow-400 ml-1">（要CV URL設定）</span>
+                    )}
                   </label>
                   <label className="flex items-center gap-2 text-slate-300">
                     <input
@@ -208,6 +330,48 @@ export default function ContentPage() {
               </div>
             </div>
 
+            {/* CV URL設定状況 */}
+            {generateOptions.generate_lp && (
+              <div className={`mb-6 p-4 rounded-lg border ${hotel.cv_url ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Link2 className={`w-4 h-4 ${hotel.cv_url ? 'text-green-400' : 'text-yellow-400'}`} />
+                    <span className={`text-sm font-medium ${hotel.cv_url ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {hotel.cv_url ? 'CV URL設定済み' : 'CV URL未設定'}
+                    </span>
+                  </div>
+                  {hotel.cv_url ? (
+                    <button
+                      onClick={() => {
+                        setCvUrlInput(hotel.cv_url || "");
+                        setShowCvUrlModal(true);
+                        setCvUrlError("");
+                      }}
+                      className="text-xs text-slate-400 hover:text-white transition-colors"
+                    >
+                      変更する
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setCvUrlInput("");
+                        setShowCvUrlModal(true);
+                        setCvUrlError("");
+                      }}
+                      className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+                    >
+                      設定する
+                    </button>
+                  )}
+                </div>
+                {hotel.cv_url && (
+                  <p className="text-xs text-slate-400 mt-2 truncate">
+                    {hotel.cv_url}
+                  </p>
+                )}
+              </div>
+            )}
+
             <button
               onClick={handleGenerate}
               disabled={generating || !selectedPlan}
@@ -233,9 +397,33 @@ export default function ContentPage() {
               {/* ランディングページ */}
               {currentAsset.lp_source_code && (
                 <div className="glass-card p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <FileCode className="w-6 h-6 text-blue-400" />
-                    <h4 className="text-xl font-bold text-white">ランディングページ</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <FileCode className="w-6 h-6 text-blue-400" />
+                      <h4 className="text-xl font-bold text-white">ランディングページ</h4>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleOpenPreview}
+                        disabled={savingLp}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all text-sm disabled:opacity-50"
+                      >
+                        {savingLp ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                        プレビュー
+                      </button>
+                      <button
+                        onClick={handleOpenInNewTab}
+                        disabled={savingLp}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-all text-sm disabled:opacity-50"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        新しいタブで開く
+                      </button>
+                    </div>
                   </div>
                   <div className="bg-white/5 rounded-lg p-4 max-h-96 overflow-auto">
                     <pre className="text-slate-300 text-xs whitespace-pre-wrap">
@@ -372,6 +560,129 @@ export default function ContentPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* LPプレビューモーダル - Portalで画面全体に表示 */}
+      {showPreviewModal && previewUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-6xl h-[90vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <Eye className="w-5 h-5 text-blue-400" />
+                <h3 className="text-lg font-semibold text-white">LPプレビュー</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-all text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  新しいタブで開く
+                </a>
+                <button
+                  onClick={() => setShowPreviewModal(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            {/* iframe プレビュー */}
+            <div className="w-full h-[calc(100%-72px)] bg-white">
+              <iframe
+                src={previewUrl}
+                className="w-full h-full border-0"
+                title="LP Preview"
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* CV URL設定モーダル - Portalで画面全体に表示 */}
+      {showCvUrlModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-5 py-3 bg-slate-800/50 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-5 h-5 text-purple-400" />
+                <h3 className="text-base font-semibold text-white">CV用URLの設定</h3>
+              </div>
+              <button
+                onClick={() => setShowCvUrlModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* コンテンツ */}
+            <div className="p-5">
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2 text-yellow-400">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">CV用URLが設定されていません</span>
+                </div>
+                <p className="text-slate-400 text-xs leading-relaxed">
+                  LP生成には予約ページへのリンク（CV用URL）が必要です。じゃらん、楽天トラベル、公式サイトなどのURLを入力してください。
+                </p>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-slate-300 text-sm mb-1.5">
+                  CV用URL（予約ページのリンク）
+                </label>
+                <input
+                  type="url"
+                  value={cvUrlInput}
+                  onChange={(e) => setCvUrlInput(e.target.value)}
+                  placeholder="https://www.jalan.net/yad123456/"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 text-sm"
+                />
+                {cvUrlError && (
+                  <p className="text-red-400 text-xs mt-1.5">{cvUrlError}</p>
+                )}
+              </div>
+              
+              <div className="text-xs text-slate-500 mb-4">
+                <p className="mb-1">例: jalan.net/yad... / travel.rakuten.co.jp/HOTEL/...</p>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowCvUrlModal(false)}
+                  className="flex-1 px-3 py-2.5 bg-white/5 text-slate-300 rounded-lg hover:bg-white/10 transition-all font-medium text-sm"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleSaveCvUrl}
+                  disabled={savingCvUrl}
+                  className="flex-1 px-3 py-2.5 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-medium disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                >
+                  {savingCvUrl ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      保存中...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      保存して生成
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </section>
   );

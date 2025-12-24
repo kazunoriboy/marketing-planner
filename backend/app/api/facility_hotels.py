@@ -21,6 +21,7 @@ class HotelCreateRequest(BaseModel):
     website: Optional[str] = None
     features: dict = {}
     strengths: dict = {}
+    cv_url: Optional[str] = None
 
 
 class HotelUpdateRequest(BaseModel):
@@ -32,6 +33,7 @@ class HotelUpdateRequest(BaseModel):
     website: Optional[str] = None
     features: Optional[dict] = None
     strengths: Optional[dict] = None
+    cv_url: Optional[str] = None
 
 
 class HotelResponse(BaseModel):
@@ -44,6 +46,7 @@ class HotelResponse(BaseModel):
     website: Optional[str]
     features: dict
     strengths: dict
+    cv_url: Optional[str]
     role: str  # 施設管理者の権限
     
     class Config:
@@ -87,6 +90,7 @@ async def list_my_hotels(
                 website=hotel.website,
                 features=hotel.features,
                 strengths=hotel.strengths,
+                cv_url=hotel.cv_url,
                 role=perm.role,
             ))
     
@@ -113,6 +117,7 @@ async def create_hotel(
         website=request.website,
         features=request.features,
         strengths=request.strengths,
+        cv_url=request.cv_url,
     )
     
     session.add(hotel)
@@ -138,6 +143,7 @@ async def create_hotel(
         website=hotel.website,
         features=hotel.features,
         strengths=hotel.strengths,
+        cv_url=hotel.cv_url,
         role=FacilityAdminHotelRole.owner,
     )
 
@@ -186,6 +192,7 @@ async def get_hotel(
         website=hotel.website,
         features=hotel.features,
         strengths=hotel.strengths,
+        cv_url=hotel.cv_url,
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -249,6 +256,8 @@ async def update_hotel(
         hotel.features = request.features
     if request.strengths is not None:
         hotel.strengths = request.strengths
+    if request.cv_url is not None:
+        hotel.cv_url = request.cv_url
     
     hotel.updated_at = datetime.utcnow()
     
@@ -265,6 +274,7 @@ async def update_hotel(
         website=hotel.website,
         features=hotel.features,
         strengths=hotel.strengths,
+        cv_url=hotel.cv_url,
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -325,4 +335,5 @@ async def delete_hotel(
     # 施設を削除
     session.delete(hotel)
     session.commit()
+
 

@@ -47,6 +47,7 @@ export interface HotelResponse {
   website?: string;
   features: Record<string, unknown>;
   strengths: Record<string, unknown>;
+  cv_url?: string;
   role: string;
 }
 
@@ -59,6 +60,7 @@ export interface HotelCreateRequest {
   website?: string;
   features?: Record<string, unknown>;
   strengths?: Record<string, unknown>;
+  cv_url?: string;
 }
 
 export interface FacilityAdminCreateRequest {
@@ -796,6 +798,19 @@ export const marketingApi = {
       `/api/creative/hotels/${hotelId}/assets/${assetId}`,
       {
         method: "DELETE",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * LPをファイルとして保存しプレビューURLを取得
+   */
+  async saveLpToFile(hotelId: number, assetId: number): Promise<{ message: string; preview_url: string; asset_id: number }> {
+    return apiRequest<{ message: string; preview_url: string; asset_id: number }>(
+      `/api/creative/hotels/${hotelId}/assets/${assetId}/save-lp`,
+      {
+        method: "POST",
       },
       "facility"
     );

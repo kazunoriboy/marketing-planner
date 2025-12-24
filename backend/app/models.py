@@ -94,6 +94,10 @@ class Hotel(SQLModel, table=True):
     # 例: {"jalan": "https://...", "google": "https://..."}
     review_urls: dict = Field(default_factory=dict, sa_column=Column(JSON))
     
+    # CV用URL（LP生成時に使用される予約リンク）
+    # 例: "https://www.jalan.net/yad123456/"
+    cv_url: Optional[str] = None
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     

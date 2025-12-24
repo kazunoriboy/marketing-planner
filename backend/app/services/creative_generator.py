@@ -10,12 +10,89 @@ class CreativeGenerator:
     """クリエイティブアセット生成サービス"""
     
     def __init__(self):
-        pass
+        self.static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
+    
+    def save_lp_to_file(
+        self,
+        lp_source_code: str,
+        hotel_id: int,
+        asset_id: int,
+        image_urls: Dict[str, str] = None
+    ) -> str:
+        """
+        LPのHTMLをファイルとして保存
+        
+        Args:
+            lp_source_code: LPのソースコード
+            hotel_id: ホテルID
+            asset_id: アセットID
+            image_urls: 画像URL辞書（ad_image_urls）
+        
+        Returns:
+            プレビューURL（相対パス）
+        """
+        # LPディレクトリを作成
+        lp_dir = os.path.join(self.static_dir, "lp", str(hotel_id))
+        os.makedirs(lp_dir, exist_ok=True)
+        
+        # 画像パスを相対パスに変換
+        processed_code = self._convert_image_paths_to_relative(
+            lp_source_code, hotel_id, image_urls
+        )
+        
+        # HTMLファイルを保存
+        filename = f"lp_{asset_id}.html"
+        filepath = os.path.join(lp_dir, filename)
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(processed_code)
+        
+        # プレビューURL（静的ファイルとしてアクセス可能なパス）
+        preview_url = f"/static/lp/{hotel_id}/{filename}"
+        return preview_url
+    
+    def _convert_image_paths_to_relative(
+        self,
+        html_code: str,
+        hotel_id: int,
+        image_urls: Dict[str, str] = None
+    ) -> str:
+        """
+        HTML内の画像パスを相対パスに変換
+        
+        Args:
+            html_code: HTMLソースコード
+            hotel_id: ホテルID
+            image_urls: 画像URL辞書
+        
+        Returns:
+            変換後のHTMLコード
+        """
+        if not image_urls:
+            return html_code
+        
+        processed_code = html_code
+        
+        # 各画像URLを相対パスに変換
+        for image_type, url in image_urls.items():
+            if isinstance(url, str) and url.startswith("/static/"):
+                # /static/generated_images/5/hero_image_xxx.png
+                # -> ../generated_images/5/hero_image_xxx.png
+                relative_path = ".." + url.replace("/static/", "/")
+                
+                # 絶対URLパターンも置換（http://localhost:8000/static/...）
+                processed_code = processed_code.replace(
+                    f"http://localhost:8000{url}", relative_path
+                )
+                processed_code = processed_code.replace(url, relative_path)
+        
+        return processed_code
     
     async def generate_landing_page(
         self,
         marketing_plan: MarketingPlan,
-        llm_client
+        llm_client,
+        cv_url: str = None
     ) -> Tuple[str, str]:
         """
         ランディングページのコードを生成
@@ -23,11 +100,12 @@ class CreativeGenerator:
         Args:
             marketing_plan: マーケティングプラン
             llm_client: LLMクライアント
+            cv_url: コンバージョン用URL（予約リンク）
         
         Returns:
             (ソースコード, 生成プロンプト) のタプル
         """
-        prompt = self._create_lp_generation_prompt(marketing_plan)
+        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url)
         
         system_prompt = """あなたは経験豊富なフロントエンドエンジニアです。
 HTML + CSS + JavaScript のシングルファイルで、モダンで美しいランディングページを作成してください。
@@ -186,8 +264,26 @@ The image should stop scrollers and evoke desire to travel.""",
         
         return ad_copy, prompt
     
-    def _create_lp_generation_prompt(self, plan: MarketingPlan) -> str:
+    def _create_lp_generation_prompt(self, plan: MarketingPlan, cv_url: str = None) -> str:
         """LP生成プロンプトを作成"""
+        
+        # CV URLがある場合のCTA説明
+        cta_instruction = ""
+        if cv_url:
+            cta_instruction = f"""
+【重要: CTAボタンについて】
+- 予約ボタン（CTA）は以下のURLへの外部リンクにしてください
+- 予約URL: {cv_url}
+- フォームは設置せず、「今すぐ予約する」「ご予約はこちら」などのボタンをクリックすると上記URLに遷移するようにしてください
+- ボタンは目立つデザインで、ページ内に複数配置してください（ヒーローセクション、価格セクション、フッター付近など）
+"""
+        else:
+            cta_instruction = """
+【CTAボタンについて】
+- 予約ボタン（CTA）は「#」または「javascript:void(0)」をhrefに設定してください
+- フォームは設置せず、ボタンのみ配置してください
+"""
+        
         return f"""
 以下のマーケティングプランに基づいて、宿泊施設のランディングページを作成してください。
 
@@ -198,7 +294,7 @@ The image should stop scrollers and evoke desire to travel.""",
 ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False, indent=2)}
 価格帯: {json.dumps(plan.price_range, ensure_ascii=False, indent=2)}
 特典: {json.dumps(plan.benefits, ensure_ascii=False, indent=2)}
-
+{cta_instruction}
 【要件】
 - HTML + CSS + JavaScript のシングルファイル（.html）で実装
 - CSSは<style>タグ内に記述
@@ -207,10 +303,10 @@ The image should stop scrollers and evoke desire to travel.""",
 - レスポンシブデザイン（モバイル対応）
 - モダンで美しいデザイン
 - 以下のセクションを含める：
-  1. ヒーローセクション（キャッチコピーとCTA）
+  1. ヒーローセクション（キャッチコピーとCTAボタン）
   2. プランの特徴・特典
-  3. 価格情報
-  4. 予約フォーム
+  3. 価格情報（CTAボタンも配置）
+  4. CTAセクション（最終的な予約ボタン）
   5. フッター
 
 完全に動作する単一のHTMLファイルを生成してください。

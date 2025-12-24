@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
-from app.models import MarketingPlan, CreativeAsset, AnalysisSession, FacilityAdminHotel
+from app.models import MarketingPlan, CreativeAsset, AnalysisSession, FacilityAdminHotel, Hotel
 from app.schemas.creative import (
     CreativeGenerationRequest,
     CreativeAssetResponse
@@ -49,6 +49,11 @@ async def generate_creative_assets_authenticated(
     if not analysis_session:
         raise HTTPException(status_code=404, detail="分析セッションが見つかりません")
     
+    # 施設情報を取得（CV URL用）
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="施設が見つかりません")
+    
     # マーケティングプランの存在確認と権限チェック
     marketing_plan = session.get(MarketingPlan, request.plan_id)
     if not marketing_plan:
@@ -56,6 +61,13 @@ async def generate_creative_assets_authenticated(
     
     if marketing_plan.analysis_session_id != analysis_session.id:
         raise HTTPException(status_code=403, detail="このプランへのアクセス権限がありません")
+    
+    # LP生成時はCV URLが必須
+    if request.generate_lp and not hotel.cv_url:
+        raise HTTPException(
+            status_code=400, 
+            detail="LP生成にはCV用URLの設定が必要です。施設設定でCV用URLを登録してください。"
+        )
     
     try:
         generator = CreativeGenerator()
@@ -72,7 +84,8 @@ async def generate_creative_assets_authenticated(
         if request.generate_lp:
             lp_code, lp_prompt = await generator.generate_landing_page(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client
+                llm_client=llm_client,
+                cv_url=hotel.cv_url
             )
         
         # 画像生成（Gemini 2.5 Flash Image / Nano Banana）
@@ -124,6 +137,18 @@ async def generate_creative_assets_authenticated(
         session.commit()
         session.refresh(creative_asset)
         
+        # LPが生成されている場合はファイルとして保存
+        if lp_code and creative_asset.id:
+            preview_url = generator.save_lp_to_file(
+                lp_source_code=lp_code,
+                hotel_id=hotel_id,
+                asset_id=creative_asset.id,
+                image_urls=image_prompts if isinstance(image_prompts, dict) else None
+            )
+            creative_asset.lp_preview_url = preview_url
+            session.commit()
+            session.refresh(creative_asset)
+        
         return creative_asset
     
     except Exception as e:
@@ -153,6 +178,70 @@ async def list_assets_by_hotel_plan(
     statement = select(CreativeAsset).where(CreativeAsset.marketing_plan_id == plan_id)
     assets = session.exec(statement).all()
     return assets
+
+
+@router.post("/hotels/{hotel_id}/assets/{asset_id}/save-lp")
+async def save_lp_to_file(
+    hotel_id: int,
+    asset_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    既存アセットのLPをファイルとして保存（認証付き）
+    
+    - LPソースコードをHTMLファイルとして保存
+    - 画像パスを相対パスに変換
+    - プレビューURLを返却
+    """
+    # 施設の分析セッションを取得して検証
+    analysis_statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(analysis_statement).first()
+    
+    if not analysis_session:
+        raise HTTPException(status_code=404, detail="分析セッションが見つかりません")
+    
+    asset = session.get(CreativeAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="クリエイティブアセットが見つかりません")
+    
+    # プランの権限チェック
+    marketing_plan = session.get(MarketingPlan, asset.marketing_plan_id)
+    if not marketing_plan or marketing_plan.analysis_session_id != analysis_session.id:
+        raise HTTPException(status_code=403, detail="このアセットへのアクセス権限がありません")
+    
+    if not asset.lp_source_code:
+        raise HTTPException(status_code=400, detail="LPソースコードがありません")
+    
+    try:
+        generator = CreativeGenerator()
+        
+        # 画像URLを取得（エラー情報を含まない実際の画像パスのみ）
+        image_urls = {}
+        if asset.ad_image_urls:
+            for key, value in asset.ad_image_urls.items():
+                if isinstance(value, str) and value.startswith("/static/"):
+                    image_urls[key] = value
+        
+        preview_url = generator.save_lp_to_file(
+            lp_source_code=asset.lp_source_code,
+            hotel_id=hotel_id,
+            asset_id=asset_id,
+            image_urls=image_urls if image_urls else None
+        )
+        
+        asset.lp_preview_url = preview_url
+        session.commit()
+        session.refresh(asset)
+        
+        return {
+            "message": "LPを保存しました",
+            "preview_url": preview_url,
+            "asset_id": asset_id
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LP保存エラー: {str(e)}")
 
 
 @router.delete("/hotels/{hotel_id}/assets/{asset_id}")
@@ -274,6 +363,22 @@ async def generate_creative_assets(
         
         session.commit()
         session.refresh(creative_asset)
+        
+        # LPが生成されている場合はファイルとして保存
+        # 注: このエンドポイントはhotel_idを受け取らないため、プランから取得
+        if lp_code and creative_asset.id:
+            # プランからホテルIDを取得
+            analysis_session = session.get(AnalysisSession, marketing_plan.analysis_session_id)
+            if analysis_session:
+                preview_url = generator.save_lp_to_file(
+                    lp_source_code=lp_code,
+                    hotel_id=analysis_session.hotel_id,
+                    asset_id=creative_asset.id,
+                    image_urls=image_prompts if isinstance(image_prompts, dict) else None
+                )
+                creative_asset.lp_preview_url = preview_url
+                session.commit()
+                session.refresh(creative_asset)
         
         return creative_asset
     
