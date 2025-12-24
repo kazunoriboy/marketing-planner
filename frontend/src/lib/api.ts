@@ -505,6 +505,7 @@ export interface CreativeAsset {
   marketing_plan_id: number;
   lp_source_code: string | null;
   lp_preview_url: string | null;
+  lp_image_urls: Record<string, unknown>;
   ad_image_urls: Record<string, unknown>;
   ad_copy: Record<string, unknown>;
   generation_prompts: Record<string, unknown>;

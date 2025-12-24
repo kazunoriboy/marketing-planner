@@ -396,7 +396,7 @@ export default function ContentPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* ランディングページ */}
               {currentAsset.lp_source_code && (
-                <div className="glass-card p-6">
+                <div className="glass-card p-6 lg:col-span-2">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <FileCode className="w-6 h-6 text-blue-400" />
@@ -425,7 +425,44 @@ export default function ContentPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-4 max-h-96 overflow-auto">
+                  
+                  {/* LP用画像セクション */}
+                  {currentAsset.lp_image_urls && Object.keys(currentAsset.lp_image_urls).length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-sm text-slate-400 mb-3">LP用画像</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        {Object.entries(currentAsset.lp_image_urls).map(([key, value]) => {
+                          const imageValue = value as Record<string, unknown> | string | null;
+                          const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
+                          
+                          return (
+                            <div key={key} className="relative">
+                              <p className="text-xs text-slate-500 mb-1">{key}</p>
+                              {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
+                                <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-800">
+                                  <img
+                                    src={`${API_BASE_URL}${imageValue}`}
+                                    alt={key}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              ) : isError ? (
+                                <div className="aspect-video rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+                                  <span className="text-red-400 text-xs">生成失敗</span>
+                                </div>
+                              ) : (
+                                <div className="aspect-video rounded-lg bg-slate-700 flex items-center justify-center">
+                                  <span className="text-slate-500 text-xs">未生成</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="bg-white/5 rounded-lg p-4 max-h-64 overflow-auto">
                     <pre className="text-slate-300 text-xs whitespace-pre-wrap">
                       {currentAsset.lp_source_code}
                     </pre>
@@ -466,12 +503,13 @@ export default function ContentPage() {
                 </div>
               )}
 
-              {/* 生成画像 */}
+              {/* 広告用画像 */}
               {currentAsset.ad_image_urls && Object.keys(currentAsset.ad_image_urls).length > 0 && (
                 <div className="glass-card p-6 lg:col-span-2">
                   <div className="flex items-center gap-3 mb-4">
                     <Image className="w-6 h-6 text-orange-400" />
-                    <h4 className="text-xl font-bold text-white">生成画像</h4>
+                    <h4 className="text-xl font-bold text-white">広告用画像</h4>
+                    <span className="text-xs text-slate-500">（ディスプレイ広告・SNS広告用）</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {Object.entries(currentAsset.ad_image_urls).map(([key, value]) => {

@@ -176,8 +176,11 @@ class CreativeAsset(SQLModel, table=True):
     lp_source_code: Optional[str] = None  # HTML + CSS + JSシングルファイルのソースコード
     lp_preview_url: Optional[str] = None
     
+    # LP用画像
+    lp_image_urls: dict = Field(default_factory=dict, sa_column=Column(JSON))  # LP用画像URL
+    
     # 広告画像
-    ad_image_urls: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 複数の画像URL
+    ad_image_urls: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 広告用画像URL
     
     # 広告コピー
     ad_copy: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 複数の広告コピー

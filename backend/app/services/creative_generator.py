@@ -76,9 +76,15 @@ class CreativeGenerator:
         # 各画像URLを相対パスに変換
         for image_type, url in image_urls.items():
             if isinstance(url, str) and url.startswith("/static/"):
-                # /static/generated_images/5/hero_image_xxx.png
-                # -> ../generated_images/5/hero_image_xxx.png
-                relative_path = ".." + url.replace("/static/", "/")
+                # LP用画像は同じディレクトリにあるので、ファイル名のみ
+                # /static/lp/5/hero_xxx.png -> ./hero_xxx.png
+                if f"/static/lp/{hotel_id}/" in url:
+                    filename = url.split("/")[-1]
+                    relative_path = f"./{filename}"
+                else:
+                    # その他の画像（広告用など）は../で上に上がる
+                    # /static/generated_images/5/xxx.png -> ../generated_images/5/xxx.png
+                    relative_path = ".." + url.replace("/static/", "/")
                 
                 # 絶対URLパターンも置換（http://localhost:8000/static/...）
                 processed_code = processed_code.replace(
@@ -92,7 +98,9 @@ class CreativeGenerator:
         self,
         marketing_plan: MarketingPlan,
         llm_client,
-        cv_url: str = None
+        cv_url: str = None,
+        hotel_info: Dict = None,
+        image_urls: Dict[str, str] = None
     ) -> Tuple[str, str]:
         """
         ランディングページのコードを生成
@@ -101,17 +109,27 @@ class CreativeGenerator:
             marketing_plan: マーケティングプラン
             llm_client: LLMクライアント
             cv_url: コンバージョン用URL（予約リンク）
+            hotel_info: ホテル情報（name, address, phone, website）
+            image_urls: 生成された画像のURL辞書
         
         Returns:
             (ソースコード, 生成プロンプト) のタプル
         """
-        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url)
+        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls)
         
-        system_prompt = """あなたは経験豊富なフロントエンドエンジニアです。
-HTML + CSS + JavaScript のシングルファイルで、モダンで美しいランディングページを作成してください。
+        system_prompt = """あなたは宿泊業界専門の経験豊富なWebデザイナー兼フロントエンドエンジニアです。
+高級感があり、信頼性を感じさせる宿泊施設のランディングページを作成してください。
+
+【重要なデザイン原則】
+1. 色は指定されたカラーパレットのみを使用すること（3色以内）
+2. 余白を十分に取り、読みやすいレイアウトにすること
+3. 画像が指定されている場合は必ず使用すること
+4. フォントサイズは見出し・本文・補足で明確に差をつけること
+5. CTAボタンは目立つが上品なデザインにすること
+
+HTML + CSS + JavaScript のシングルファイルで実装してください。
 すべてのスタイルとスクリプトは1つのHTMLファイルに含めてください（<style>タグと<script>タグを使用）。
-外部ライブラリやフレームワークを使用せず、純粋なHTML/CSS/JavaScriptで実装してください。
-完全に動作し、そのままウェブサーバーにデプロイできる状態で提供してください。"""
+外部ライブラリやフレームワークを使用せず、純粋なHTML/CSS/JavaScriptで実装してください。"""
         
         response = await llm_client.generate_text(
             user_prompt=prompt,
@@ -124,34 +142,33 @@ HTML + CSS + JavaScript のシングルファイルで、モダンで美しい�
         
         return code, prompt
     
-    async def generate_ad_images(
+    async def _generate_images_with_configs(
         self,
-        marketing_plan: MarketingPlan,
+        image_configs: Dict,
         llm_client,
-        hotel_id: int
+        hotel_id: int,
+        prefix: str = "",
+        save_subdir: str = "generated_images"
     ) -> Tuple[Dict, str]:
         """
-        広告画像を生成（Gemini 2.5 Flash Image / Nano Banana）
+        画像設定に基づいて画像を生成する共通関数
         
         Args:
-            marketing_plan: マーケティングプラン
+            image_configs: 画像設定辞書
             llm_client: LLMクライアント
-            hotel_id: ホテルID（画像保存パス用）
+            hotel_id: ホテルID
+            prefix: ファイル名のプレフィックス
+            save_subdir: 保存先サブディレクトリ（"generated_images" or "lp"）
         
         Returns:
-            (画像URL辞書, 生成プロンプト) のタプル
+            (画像URL辞書, 生成ログ) のタプル
         """
         # 画像保存ディレクトリを作成
-        image_dir = os.path.join("static", "generated_images", str(hotel_id))
+        image_dir = os.path.join("static", save_subdir, str(hotel_id))
         os.makedirs(image_dir, exist_ok=True)
-        
-        # 各用途の画像プロンプトを生成
-        image_configs = self._create_image_prompts_for_plan(marketing_plan)
         
         image_urls = {}
         generation_log = []
-        has_quota_error = False
-        quota_error_message = None
         
         for image_type, config in image_configs.items():
             try:
@@ -163,69 +180,153 @@ HTML + CSS + JavaScript のシングルファイルで、モダンで美しい�
                 
                 # ファイル拡張子を決定
                 ext = "png" if "png" in mime_type else "jpg"
-                filename = f"{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
+                filename = f"{prefix}{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
                 filepath = os.path.join(image_dir, filename)
                 
                 # 画像を保存
                 with open(filepath, "wb") as f:
                     f.write(image_data)
                 
-                # URLパスを保存（フロントエンドからアクセス可能なパス）
-                image_urls[image_type] = f"/static/generated_images/{hotel_id}/{filename}"
+                # URLパスを保存（save_subdirに応じたパス）
+                image_urls[image_type] = f"/static/{save_subdir}/{hotel_id}/{filename}"
                 generation_log.append(f"{image_type}: 生成成功")
                 
             except Exception as e:
                 error_str = str(e)
                 print(f"画像生成エラー ({image_type}): {error_str}")
                 
-                # APIクォータエラーを検出
+                # エラー情報を記録
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower():
-                    has_quota_error = True
-                    quota_error_message = "API利用制限に達しました。しばらく待ってから再度お試しください。"
-                    image_urls[image_type] = {"error": "quota_exceeded", "message": quota_error_message}
+                    image_urls[image_type] = {"error": "quota_exceeded", "message": "API利用制限に達しました"}
                 else:
-                    image_urls[image_type] = {"error": "generation_failed", "message": f"画像生成に失敗しました: {error_str[:100]}"}
+                    image_urls[image_type] = {"error": "generation_failed", "message": f"画像生成に失敗: {error_str[:100]}"}
                 
                 generation_log.append(f"{image_type}: 生成失敗 - {error_str[:100]}")
         
-        prompt_summary = self._format_generation_summary(image_configs, generation_log)
+        return image_urls, generation_log
+
+    async def generate_lp_images(
+        self,
+        marketing_plan: MarketingPlan,
+        llm_client,
+        hotel_id: int
+    ) -> Tuple[Dict, str]:
+        """
+        LP用画像を生成（static/lp/{hotel_id}/に保存）
         
+        Args:
+            marketing_plan: マーケティングプラン
+            llm_client: LLMクライアント
+            hotel_id: ホテルID
+        
+        Returns:
+            (画像URL辞書, 生成プロンプト) のタプル
+        """
+        image_configs = self._create_lp_image_prompts(marketing_plan)
+        image_urls, generation_log = await self._generate_images_with_configs(
+            image_configs, llm_client, hotel_id, prefix="", save_subdir="lp"
+        )
+        prompt_summary = self._format_generation_summary(image_configs, generation_log, "LP用画像")
         return image_urls, prompt_summary
-    
-    def _create_image_prompts_for_plan(self, plan: MarketingPlan) -> Dict:
-        """マーケティングプランに基づいて画像生成プロンプトを作成"""
+
+    async def generate_ad_images(
+        self,
+        marketing_plan: MarketingPlan,
+        llm_client,
+        hotel_id: int
+    ) -> Tuple[Dict, str]:
+        """
+        広告用画像を生成（ディスプレイ広告、SNS広告用）
+        
+        Args:
+            marketing_plan: マーケティングプラン
+            llm_client: LLMクライアント
+            hotel_id: ホテルID
+        
+        Returns:
+            (画像URL辞書, 生成プロンプト) のタプル
+        """
+        image_configs = self._create_ad_image_prompts(marketing_plan)
+        image_urls, generation_log = await self._generate_images_with_configs(
+            image_configs, llm_client, hotel_id, prefix="ad_"
+        )
+        prompt_summary = self._format_generation_summary(image_configs, generation_log, "広告用画像")
+        return image_urls, prompt_summary
+
+    def _create_lp_image_prompts(self, plan: MarketingPlan) -> Dict:
+        """LP用画像のプロンプトを作成"""
         target_info = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else "一般"
         
+        # 共通の指示: テキストを生成しない
+        no_text_instruction = """
+CRITICAL: DO NOT generate any text, letters, words, numbers, logos, watermarks, or typography in the image.
+The image must be purely photographic with no text elements whatsoever."""
+        
         return {
-            "hero_image": {
-                "prompt": f"""A stunning, professional photograph of a Japanese ryokan (traditional inn) exterior or interior. 
-The scene should convey: {plan.concept}
-Target audience: {target_info}
-Style: High-end hotel photography, warm and inviting atmosphere, soft natural lighting.
-The image should feel luxurious yet authentic Japanese hospitality.""",
+            "hero": {
+                "prompt": f"""A stunning, wide-angle photograph of a Japanese ryokan or hotel.
+Scene: Beautiful exterior or grand interior entrance/lobby.
+Concept: {plan.concept}
+Style: High-end hospitality photography, dramatic lighting, cinematic composition.
+The image should immediately convey luxury, comfort and Japanese hospitality.
+{no_text_instruction}""",
                 "aspect_ratio": "16:9"
             },
-            "feature_image": {
-                "prompt": f"""A beautiful photograph showcasing a special feature of a Japanese accommodation.
+            "feature": {
+                "prompt": f"""A warm, inviting photograph showcasing the best feature of a Japanese accommodation.
 Theme: {plan.plan_name}
-Concept: {plan.concept}
-Style: Editorial photography, highlighting unique amenities or experiences, warm colors.
-Focus on details that appeal to travelers seeking authentic experiences.""",
+Could be: hot spring bath, traditional room, scenic view, or gourmet cuisine.
+Style: Editorial travel photography, soft natural lighting, cozy atmosphere.
+Focus on details that evoke relaxation and authentic experience.
+{no_text_instruction}""",
                 "aspect_ratio": "4:3"
             },
-            "social_ad_image": {
-                "prompt": f"""An eye-catching social media advertisement image for a Japanese hotel/ryokan.
-Campaign: {plan.plan_name}
-Message: {plan.concept}
-Style: Modern, clean, Instagram-worthy, with space for text overlay.
-The image should stop scrollers and evoke desire to travel.""",
+            "ambiance": {
+                "prompt": f"""An atmospheric detail shot of a Japanese hotel/ryokan.
+Theme: {plan.concept}
+Could be: tea ceremony setup, flower arrangement, traditional crafts, garden view.
+Style: Minimalist, zen aesthetic, beautiful bokeh, warm tones.
+The image should add depth and cultural authenticity to the page.
+{no_text_instruction}""",
                 "aspect_ratio": "1:1"
             }
         }
-    
-    def _format_generation_summary(self, configs: Dict, logs: list) -> str:
+
+    def _create_ad_image_prompts(self, plan: MarketingPlan) -> Dict:
+        """広告用画像のプロンプトを作成（テキストオーバーレイ用スペースあり）"""
+        target_info = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else "一般"
+        
+        return {
+            "display_wide": {
+                "prompt": f"""A visually striking advertisement image for a Japanese hotel/ryokan.
+Campaign: {plan.plan_name}
+IMPORTANT: Leave clear space on the left or right side for text overlay.
+Style: Modern advertising photography, high contrast, eye-catching.
+The image should work as a banner ad background.""",
+                "aspect_ratio": "16:9"
+            },
+            "display_square": {
+                "prompt": f"""A compelling square advertisement image for social media.
+Campaign: {plan.plan_name}
+Message: {plan.concept}
+IMPORTANT: Leave clear space at top or bottom for text overlay.
+Style: Instagram-worthy, vibrant but elegant, scroll-stopping.
+Target: {target_info}""",
+                "aspect_ratio": "1:1"
+            },
+            "display_vertical": {
+                "prompt": f"""A vertical advertisement image for mobile display ads or stories.
+Campaign: {plan.plan_name}
+IMPORTANT: Leave clear space at top and bottom for text overlay.
+Style: Modern, aspirational, mobile-optimized composition.
+The image should make viewers want to book immediately.""",
+                "aspect_ratio": "9:16"
+            }
+        }
+
+    def _format_generation_summary(self, configs: Dict, logs: list, category: str = "画像") -> str:
         """生成サマリーをフォーマット"""
-        summary = "【画像生成サマリー】\n\n"
+        summary = f"【{category}生成サマリー】\n\n"
         for image_type, config in configs.items():
             summary += f"■ {image_type}\n"
             summary += f"  プロンプト: {config['prompt'][:100]}...\n"
@@ -264,8 +365,60 @@ The image should stop scrollers and evoke desire to travel.""",
         
         return ad_copy, prompt
     
-    def _create_lp_generation_prompt(self, plan: MarketingPlan, cv_url: str = None) -> str:
+    def _create_lp_generation_prompt(
+        self, 
+        plan: MarketingPlan, 
+        cv_url: str = None,
+        hotel_info: Dict = None,
+        image_urls: Dict[str, str] = None
+    ) -> str:
         """LP生成プロンプトを作成"""
+        
+        # ホテル情報セクション
+        hotel_section = ""
+        if hotel_info:
+            hotel_section = f"""
+【施設情報】
+施設名: {hotel_info.get('name', '宿泊施設')}
+住所: {hotel_info.get('address', '')}
+電話番号: {hotel_info.get('phone', '') or '掲載なし'}
+公式サイト: {hotel_info.get('website', '') or '掲載なし'}
+"""
+        
+        # 画像セクション
+        image_section = ""
+        if image_urls and len(image_urls) > 0:
+            image_section = """
+【使用する画像 - 必ず以下の画像をHTMLに埋め込んでください】
+"""
+            for img_type, img_path in image_urls.items():
+                # パスをファイル名のみの相対パス（./xxx.png）に変換
+                if isinstance(img_path, str) and "/" in img_path:
+                    filename = img_path.split("/")[-1]
+                    relative_path = f"./{filename}"
+                else:
+                    relative_path = img_path
+                
+                if img_type == "hero":
+                    image_section += f"- ヒーロー画像（メインビジュアル）: {relative_path}\n"
+                elif img_type == "feature":
+                    image_section += f"- 特徴紹介画像: {relative_path}\n"
+                elif img_type == "ambiance":
+                    image_section += f"- 雰囲気・ディテール画像: {relative_path}\n"
+                else:
+                    image_section += f"- {img_type}: {relative_path}\n"
+            
+            image_section += """
+※ 上記の画像パス（./xxx.png形式）をそのままimgタグのsrc属性に使用してください
+※ ヒーロー画像はヒーローセクションの背景または大きな画像として使用
+※ 特徴画像は特徴・特典セクションで使用
+※ 雰囲気画像は追加のビジュアルとして適宜使用
+"""
+        else:
+            image_section = """
+【画像について】
+- 画像は使用せず、CSSグラデーションや図形でビジュアルを表現してください
+"""
         
         # CV URLがある場合のCTA説明
         cta_instruction = ""
@@ -275,18 +428,30 @@ The image should stop scrollers and evoke desire to travel.""",
 - 予約ボタン（CTA）は以下のURLへの外部リンクにしてください
 - 予約URL: {cv_url}
 - フォームは設置せず、「今すぐ予約する」「ご予約はこちら」などのボタンをクリックすると上記URLに遷移するようにしてください
-- ボタンは目立つデザインで、ページ内に複数配置してください（ヒーローセクション、価格セクション、フッター付近など）
+- ボタンはページ内に3箇所以上配置（ヒーローセクション、特徴セクション後、フッター前）
 """
         else:
             cta_instruction = """
 【CTAボタンについて】
-- 予約ボタン（CTA）は「#」または「javascript:void(0)」をhrefに設定してください
-- フォームは設置せず、ボタンのみ配置してください
+- 予約ボタン（CTA）は「#」をhrefに設定してください
+"""
+        
+        # カラーパレット（宿泊施設向けの上品な配色）
+        color_palette = """
+【カラーパレット - この3色のみを使用してください】
+- メインカラー: #2c3e50（深いネイビー / 信頼感・高級感）
+- アクセントカラー: #c0392b（落ち着いた赤 / CTAボタン用）
+- 背景色: #fdfbf7（温かみのあるオフホワイト）
+- テキスト色: #333333（ダークグレー / 本文用）
+- サブテキスト色: #666666（グレー / 補足情報用）
+
+※ 上記以外の色は使用しないでください
+※ グラデーションを使う場合も上記の色の組み合わせのみ
 """
         
         return f"""
 以下のマーケティングプランに基づいて、宿泊施設のランディングページを作成してください。
-
+{hotel_section}
 【プラン情報】
 プラン名: {plan.plan_name}
 コンセプト: {plan.concept}
@@ -294,20 +459,39 @@ The image should stop scrollers and evoke desire to travel.""",
 ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False, indent=2)}
 価格帯: {json.dumps(plan.price_range, ensure_ascii=False, indent=2)}
 特典: {json.dumps(plan.benefits, ensure_ascii=False, indent=2)}
+{color_palette}
+{image_section}
 {cta_instruction}
-【要件】
+【デザイン要件】
+1. 全体的なスタイル
+   - 余白を十分に取る（セクション間は80px以上）
+   - 行間は1.8以上で読みやすく
+   - 最大幅1200pxでセンタリング
+
+2. タイポグラフィ
+   - 見出し: 32px-48px, font-weight: 700
+   - 本文: 16px-18px, font-weight: 400
+   - 補足: 14px, font-weight: 400
+
+3. CTAボタン
+   - パディング: 16px 48px以上
+   - 角丸: 4px（控えめ）
+   - ホバー時に少し暗くなるエフェクト
+
+4. セクション構成
+   - ヒーローセクション: 施設名、キャッチコピー、CTAボタン、（ヒーロー画像があれば背景に使用）
+   - コンセプト紹介: プランのコンセプトを魅力的に説明
+   - 特徴・特典セクション: アイコンまたは画像付きで特典を紹介
+   - 価格セクション: 価格情報をわかりやすく表示、CTAボタン
+   - 施設情報: 施設名、住所、電話番号
+   - フッター: CTAボタン、コピーライト
+
+【技術要件】
 - HTML + CSS + JavaScript のシングルファイル（.html）で実装
 - CSSは<style>タグ内に記述
-- JavaScriptは<script>タグ内に記述
-- 外部ライブラリやCDNは使用しない（純粋なHTML/CSS/JavaScript）
-- レスポンシブデザイン（モバイル対応）
-- モダンで美しいデザイン
-- 以下のセクションを含める：
-  1. ヒーローセクション（キャッチコピーとCTAボタン）
-  2. プランの特徴・特典
-  3. 価格情報（CTAボタンも配置）
-  4. CTAセクション（最終的な予約ボタン）
-  5. フッター
+- JavaScriptは<script>タグ内に記述（スムーズスクロールなど）
+- 外部ライブラリやCDNは使用しない
+- レスポンシブデザイン（768px以下でモバイル対応）
 
 完全に動作する単一のHTMLファイルを生成してください。
 必ず<!DOCTYPE html>から始まる完全なHTMLドキュメントを出力してください。

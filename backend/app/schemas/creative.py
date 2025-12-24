@@ -17,6 +17,7 @@ class CreativeAssetResponse(BaseModel):
     marketing_plan_id: int
     lp_source_code: Optional[str]
     lp_preview_url: Optional[str]
+    lp_image_urls: Dict
     ad_image_urls: Dict
     ad_copy: Dict
     generation_prompts: Dict

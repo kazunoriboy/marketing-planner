@@ -75,25 +75,48 @@ async def generate_creative_assets_authenticated(
         
         lp_code = None
         lp_prompt = None
-        image_prompts = {}
-        image_gen_prompt = None
+        lp_image_urls = {}
+        lp_image_gen_prompt = None
+        ad_image_urls = {}
+        ad_image_gen_prompt = None
         ad_copy = {}
         ad_copy_prompt = None
         
-        # LP生成
+        # LP用画像を先に生成（LPで使用するため）
         if request.generate_lp:
-            lp_code, lp_prompt = await generator.generate_landing_page(
-                marketing_plan=marketing_plan,
-                llm_client=llm_client,
-                cv_url=hotel.cv_url
-            )
-        
-        # 画像生成（Gemini 2.5 Flash Image / Nano Banana）
-        if request.generate_images:
-            image_prompts, image_gen_prompt = await generator.generate_ad_images(
+            lp_image_urls, lp_image_gen_prompt = await generator.generate_lp_images(
                 marketing_plan=marketing_plan,
                 llm_client=llm_client,
                 hotel_id=hotel_id
+            )
+        
+        # 広告用画像を生成
+        if request.generate_images:
+            ad_image_urls, ad_image_gen_prompt = await generator.generate_ad_images(
+                marketing_plan=marketing_plan,
+                llm_client=llm_client,
+                hotel_id=hotel_id
+            )
+        
+        # LP生成（LP用画像URLとホテル情報を渡す）
+        if request.generate_lp:
+            # 成功した画像URLのみを抽出（エラー情報を除外）
+            valid_lp_image_urls = {}
+            for key, value in lp_image_urls.items():
+                if isinstance(value, str) and value.startswith("/static/"):
+                    valid_lp_image_urls[key] = value
+            
+            lp_code, lp_prompt = await generator.generate_landing_page(
+                marketing_plan=marketing_plan,
+                llm_client=llm_client,
+                cv_url=hotel.cv_url,
+                hotel_info={
+                    "name": hotel.name,
+                    "address": hotel.address,
+                    "phone": hotel.phone,
+                    "website": hotel.website,
+                },
+                image_urls=valid_lp_image_urls
             )
         
         # 広告コピー生成
@@ -111,15 +134,18 @@ async def generate_creative_assets_authenticated(
         
         generation_prompts = {
             "lp_prompt": lp_prompt,
-            "image_generation_prompt": image_gen_prompt,
+            "lp_image_generation_prompt": lp_image_gen_prompt,
+            "ad_image_generation_prompt": ad_image_gen_prompt,
             "ad_copy_prompt": ad_copy_prompt
         }
         
         if existing_asset:
             if lp_code:
                 existing_asset.lp_source_code = lp_code
-            if image_prompts:
-                existing_asset.ad_image_urls = image_prompts
+            if lp_image_urls:
+                existing_asset.lp_image_urls = lp_image_urls
+            if ad_image_urls:
+                existing_asset.ad_image_urls = ad_image_urls
             if ad_copy:
                 existing_asset.ad_copy = ad_copy
             existing_asset.generation_prompts = generation_prompts
@@ -128,7 +154,8 @@ async def generate_creative_assets_authenticated(
             creative_asset = CreativeAsset(
                 marketing_plan_id=request.plan_id,
                 lp_source_code=lp_code,
-                ad_image_urls=image_prompts,
+                lp_image_urls=lp_image_urls,
+                ad_image_urls=ad_image_urls,
                 ad_copy=ad_copy,
                 generation_prompts=generation_prompts
             )
@@ -139,11 +166,17 @@ async def generate_creative_assets_authenticated(
         
         # LPが生成されている場合はファイルとして保存
         if lp_code and creative_asset.id:
+            # LP用画像のみを抽出してプレビュー用に渡す
+            valid_lp_images = {}
+            for key, value in lp_image_urls.items():
+                if isinstance(value, str) and value.startswith("/static/"):
+                    valid_lp_images[key] = value
+            
             preview_url = generator.save_lp_to_file(
                 lp_source_code=lp_code,
                 hotel_id=hotel_id,
                 asset_id=creative_asset.id,
-                image_urls=image_prompts if isinstance(image_prompts, dict) else None
+                image_urls=valid_lp_images if valid_lp_images else None
             )
             creative_asset.lp_preview_url = preview_url
             session.commit()
