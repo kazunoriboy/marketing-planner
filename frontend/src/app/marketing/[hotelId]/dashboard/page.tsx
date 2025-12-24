@@ -5,6 +5,8 @@ import { Sparkles, UserCheck, Swords, Building, FileText, TrendingUp } from "luc
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, AnalysisSession, MarketingPlan } from "@/lib/api";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function MarketingDashboard() {
   const { hotel, hotelId } = useHotel();
@@ -56,10 +58,19 @@ export default function MarketingDashboard() {
               <h3 className="text-2xl font-bold text-white">AIからの提案</h3>
             </div>
             {hasAnalysisData && session?.csv_insights ? (
-              <p className="text-slate-300 text-lg whitespace-pre-wrap">
-                {session.csv_insights.substring(0, 300)}
-                {session.csv_insights.length > 300 && "..."}
-              </p>
+              <div className="max-h-64 overflow-y-auto prose prose-invert prose-sm max-w-none
+                prose-headings:text-white prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
+                prose-p:text-slate-300 prose-p:my-2
+                prose-ul:text-slate-300 prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+                prose-ol:text-slate-300 prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+                prose-li:text-slate-300 prose-li:my-1
+                prose-strong:text-white prose-strong:font-semibold
+                prose-code:text-cyan-400 prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+              ">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {session.csv_insights}
+                </ReactMarkdown>
+              </div>
             ) : (
               <div className="text-slate-400">
                 <p className="mb-4">
@@ -174,4 +185,5 @@ export default function MarketingDashboard() {
     </section>
   );
 }
+
 

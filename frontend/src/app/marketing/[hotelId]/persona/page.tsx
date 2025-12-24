@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, AnalysisSession, CSVAnalysisResponse, ReviewUrlsUpdate } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // 統計カードのラベル定義
 const STAT_LABELS: Record<string, { label: string; icon: React.ElementType }> = {
@@ -611,10 +613,22 @@ export default function PersonaPage() {
               {session?.csv_insights && (
                 <div className="mb-8">
                   <h4 className="text-lg font-semibold text-white mb-4">AIインサイト</h4>
-                  <div className="p-6 bg-white/5 rounded-lg border border-white/10">
-                    <p className="text-slate-300 whitespace-pre-wrap">
+                  <div className="p-6 bg-white/5 rounded-lg border border-white/10 prose prose-invert prose-sm max-w-none
+                    prose-headings:text-white prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
+                    prose-p:text-slate-300 prose-p:my-2
+                    prose-ul:text-slate-300 prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+                    prose-ol:text-slate-300 prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+                    prose-li:text-slate-300 prose-li:my-1
+                    prose-strong:text-white prose-strong:font-semibold
+                    prose-code:text-cyan-400 prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+                    prose-table:border-collapse prose-th:text-slate-300 prose-th:border prose-th:border-white/20 prose-th:p-2
+                    prose-td:text-slate-300 prose-td:border prose-td:border-white/20 prose-td:p-2
+                    prose-blockquote:border-l-purple-500 prose-blockquote:text-slate-400
+                    prose-hr:border-white/20
+                  ">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {session.csv_insights}
-                    </p>
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -635,4 +649,5 @@ export default function PersonaPage() {
     </section>
   );
 }
+
 

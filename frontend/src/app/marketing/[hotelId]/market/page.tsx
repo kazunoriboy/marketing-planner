@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { TrendingUp, Search, Loader2, Building2, MapPin } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, AnalysisSession } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function MarketPage() {
   const { hotel, hotelId } = useHotel();
@@ -153,10 +155,18 @@ export default function MarketPage() {
                     <TrendingUp className="w-6 h-6 text-purple-400" />
                     <h3 className="text-2xl font-bold text-white">地域トレンド</h3>
                   </div>
-                  <div className="p-6 bg-white/5 rounded-lg border border-white/10">
-                    <p className="text-slate-300 whitespace-pre-wrap">
+                  <div className="p-6 bg-white/5 rounded-lg border border-white/10 prose prose-invert prose-sm max-w-none
+                    prose-headings:text-white prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
+                    prose-p:text-slate-300 prose-p:my-2
+                    prose-ul:text-slate-300 prose-ul:my-2 prose-ul:list-disc prose-ul:pl-4
+                    prose-ol:text-slate-300 prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-4
+                    prose-li:text-slate-300 prose-li:my-1
+                    prose-strong:text-white prose-strong:font-semibold
+                    prose-code:text-cyan-400 prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+                  ">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {session.regional_trends}
-                    </p>
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -167,4 +177,5 @@ export default function MarketPage() {
     </section>
   );
 }
+
 
