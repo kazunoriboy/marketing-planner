@@ -1,9 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus } from "lucide-react";
+import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, MarketingPlan, AnalysisSession } from "@/lib/api";
+
+// 型定義
+interface TargetAudience {
+  age_range?: string;
+  demographics?: string;
+  psychographics?: string;
+  needs?: string[];
+}
+
+interface PriceRange {
+  min?: number;
+  max?: number;
+  recommended?: number;
+  rationale?: string;
+}
+
+interface Benefits {
+  main_benefits?: string[];
+  unique_value?: string;
+  amenities?: string[];
+}
+
+interface Strategy3C {
+  customer?: string;
+  competitor?: string;
+  company?: string;
+}
+
+interface StrategyPEST {
+  political?: string;
+  economic?: string;
+  social?: string;
+  technological?: string;
+}
+
+// 価格をフォーマット
+function formatPrice(price: number): string {
+  return `¥${price.toLocaleString("ja-JP")}`;
+}
 
 export default function PlannerPage() {
   const { hotel, hotelId } = useHotel();
@@ -242,11 +281,48 @@ export default function PlannerPage() {
                 {/* ターゲット顧客 */}
                 {selectedPlan.target_audience && Object.keys(selectedPlan.target_audience).length > 0 && (
                   <div className="mb-6">
-                    <h4 className="text-lg font-semibold text-white mb-2">ターゲット顧客</h4>
-                    <div className="p-4 bg-white/5 rounded-lg">
-                      <pre className="text-slate-300 text-sm whitespace-pre-wrap">
-                        {JSON.stringify(selectedPlan.target_audience, null, 2)}
-                      </pre>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="w-5 h-5 text-blue-400" />
+                      <h4 className="text-lg font-semibold text-white">ターゲット顧客</h4>
+                    </div>
+                    <div className="p-4 bg-white/5 rounded-lg space-y-3">
+                      {(() => {
+                        const target = selectedPlan.target_audience as TargetAudience;
+                        return (
+                          <>
+                            {target.age_range && (
+                              <div className="flex items-start gap-3">
+                                <span className="text-slate-400 text-sm min-w-[100px]">年齢層</span>
+                                <span className="text-white">{target.age_range}</span>
+                              </div>
+                            )}
+                            {target.demographics && (
+                              <div className="flex items-start gap-3">
+                                <span className="text-slate-400 text-sm min-w-[100px]">属性</span>
+                                <span className="text-white">{target.demographics}</span>
+                              </div>
+                            )}
+                            {target.psychographics && (
+                              <div className="flex items-start gap-3">
+                                <span className="text-slate-400 text-sm min-w-[100px]">志向</span>
+                                <span className="text-white">{target.psychographics}</span>
+                              </div>
+                            )}
+                            {target.needs && target.needs.length > 0 && (
+                              <div className="flex items-start gap-3">
+                                <span className="text-slate-400 text-sm min-w-[100px]">ニーズ</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {target.needs.map((need, idx) => (
+                                    <span key={idx} className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm">
+                                      {need}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -254,11 +330,44 @@ export default function PlannerPage() {
                 {/* 価格帯 */}
                 {selectedPlan.price_range && Object.keys(selectedPlan.price_range).length > 0 && (
                   <div className="mb-6">
-                    <h4 className="text-lg font-semibold text-white mb-2">価格帯</h4>
+                    <div className="flex items-center gap-2 mb-3">
+                      <DollarSign className="w-5 h-5 text-green-400" />
+                      <h4 className="text-lg font-semibold text-white">価格帯</h4>
+                    </div>
                     <div className="p-4 bg-white/5 rounded-lg">
-                      <pre className="text-slate-300 text-sm whitespace-pre-wrap">
-                        {JSON.stringify(selectedPlan.price_range, null, 2)}
-                      </pre>
+                      {(() => {
+                        const price = selectedPlan.price_range as PriceRange;
+                        return (
+                          <>
+                            <div className="grid grid-cols-3 gap-4 mb-4">
+                              {price.min !== undefined && (
+                                <div className="text-center p-3 bg-white/5 rounded-lg">
+                                  <p className="text-slate-400 text-xs mb-1">最低価格</p>
+                                  <p className="text-white font-semibold">{formatPrice(price.min)}</p>
+                                </div>
+                              )}
+                              {price.recommended !== undefined && (
+                                <div className="text-center p-3 bg-green-500/20 rounded-lg border border-green-500/30">
+                                  <p className="text-green-400 text-xs mb-1">推奨価格</p>
+                                  <p className="text-green-300 font-bold text-lg">{formatPrice(price.recommended)}</p>
+                                </div>
+                              )}
+                              {price.max !== undefined && (
+                                <div className="text-center p-3 bg-white/5 rounded-lg">
+                                  <p className="text-slate-400 text-xs mb-1">最高価格</p>
+                                  <p className="text-white font-semibold">{formatPrice(price.max)}</p>
+                                </div>
+                              )}
+                            </div>
+                            {price.rationale && (
+                              <div className="p-3 bg-white/5 rounded-lg">
+                                <p className="text-slate-400 text-xs mb-1">価格設定の根拠</p>
+                                <p className="text-slate-300 text-sm">{price.rationale}</p>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -266,11 +375,49 @@ export default function PlannerPage() {
                 {/* 特典 */}
                 {selectedPlan.benefits && Object.keys(selectedPlan.benefits).length > 0 && (
                   <div className="mb-6">
-                    <h4 className="text-lg font-semibold text-white mb-2">特典・特徴</h4>
-                    <div className="p-4 bg-white/5 rounded-lg">
-                      <pre className="text-slate-300 text-sm whitespace-pre-wrap">
-                        {JSON.stringify(selectedPlan.benefits, null, 2)}
-                      </pre>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Gift className="w-5 h-5 text-pink-400" />
+                      <h4 className="text-lg font-semibold text-white">特典・特徴</h4>
+                    </div>
+                    <div className="p-4 bg-white/5 rounded-lg space-y-4">
+                      {(() => {
+                        const benefits = selectedPlan.benefits as Benefits;
+                        return (
+                          <>
+                            {benefits.unique_value && (
+                              <div className="p-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-500/30">
+                                <p className="text-purple-300 text-xs mb-1">独自の価値提案</p>
+                                <p className="text-white font-medium">{benefits.unique_value}</p>
+                              </div>
+                            )}
+                            {benefits.main_benefits && benefits.main_benefits.length > 0 && (
+                              <div>
+                                <p className="text-slate-400 text-xs mb-2">主な特典</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {benefits.main_benefits.map((benefit, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 p-2 bg-white/5 rounded-lg">
+                                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                                      <span className="text-slate-300 text-sm">{benefit}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {benefits.amenities && benefits.amenities.length > 0 && (
+                              <div>
+                                <p className="text-slate-400 text-xs mb-2">アメニティ</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {benefits.amenities.map((amenity, idx) => (
+                                    <span key={idx} className="px-2 py-1 bg-pink-500/20 text-pink-300 rounded-full text-sm">
+                                      {amenity}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -278,11 +425,79 @@ export default function PlannerPage() {
                 {/* 3C分析 */}
                 {selectedPlan.strategy_3c && Object.keys(selectedPlan.strategy_3c).length > 0 && (
                   <div className="mb-6">
-                    <h4 className="text-lg font-semibold text-white mb-2">3C分析</h4>
-                    <div className="p-4 bg-white/5 rounded-lg">
-                      <pre className="text-slate-300 text-sm whitespace-pre-wrap">
-                        {JSON.stringify(selectedPlan.strategy_3c, null, 2)}
-                      </pre>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Target className="w-5 h-5 text-orange-400" />
+                      <h4 className="text-lg font-semibold text-white">3C分析</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {(() => {
+                        const strategy = selectedPlan.strategy_3c as Strategy3C;
+                        return (
+                          <>
+                            {strategy.customer && (
+                              <div className="p-4 bg-white/5 rounded-lg border-l-4 border-blue-500">
+                                <p className="text-blue-400 text-xs font-semibold mb-2">Customer（顧客）</p>
+                                <p className="text-slate-300 text-sm">{strategy.customer}</p>
+                              </div>
+                            )}
+                            {strategy.competitor && (
+                              <div className="p-4 bg-white/5 rounded-lg border-l-4 border-red-500">
+                                <p className="text-red-400 text-xs font-semibold mb-2">Competitor（競合）</p>
+                                <p className="text-slate-300 text-sm">{strategy.competitor}</p>
+                              </div>
+                            )}
+                            {strategy.company && (
+                              <div className="p-4 bg-white/5 rounded-lg border-l-4 border-green-500">
+                                <p className="text-green-400 text-xs font-semibold mb-2">Company（自社）</p>
+                                <p className="text-slate-300 text-sm">{strategy.company}</p>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* PEST分析 */}
+                {selectedPlan.strategy_pest && Object.keys(selectedPlan.strategy_pest).length > 0 && (
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Globe className="w-5 h-5 text-cyan-400" />
+                      <h4 className="text-lg font-semibold text-white">PEST分析</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(() => {
+                        const pest = selectedPlan.strategy_pest as StrategyPEST;
+                        return (
+                          <>
+                            {pest.political && (
+                              <div className="p-4 bg-white/5 rounded-lg">
+                                <p className="text-purple-400 text-xs font-semibold mb-2">Political（政治的要因）</p>
+                                <p className="text-slate-300 text-sm">{pest.political}</p>
+                              </div>
+                            )}
+                            {pest.economic && (
+                              <div className="p-4 bg-white/5 rounded-lg">
+                                <p className="text-green-400 text-xs font-semibold mb-2">Economic（経済的要因）</p>
+                                <p className="text-slate-300 text-sm">{pest.economic}</p>
+                              </div>
+                            )}
+                            {pest.social && (
+                              <div className="p-4 bg-white/5 rounded-lg">
+                                <p className="text-blue-400 text-xs font-semibold mb-2">Social（社会的要因）</p>
+                                <p className="text-slate-300 text-sm">{pest.social}</p>
+                              </div>
+                            )}
+                            {pest.technological && (
+                              <div className="p-4 bg-white/5 rounded-lg">
+                                <p className="text-cyan-400 text-xs font-semibold mb-2">Technological（技術的要因）</p>
+                                <p className="text-slate-300 text-sm">{pest.technological}</p>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -299,4 +514,5 @@ export default function PlannerPage() {
     </section>
   );
 }
+
 
