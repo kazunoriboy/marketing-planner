@@ -98,10 +98,10 @@ export default function FacilityDashboardPage() {
                         : "閲覧者"}
                   </span>
                   <Link
-                    href={`/facility/hotels/${hotel.id}`}
+                    href={`/marketing/${hotel.id}/dashboard`}
                     className="inline-flex items-center text-sm text-teal-600 hover:text-teal-500"
                   >
-                    詳細
+                    分析する
                     <ArrowRight className="ml-1 h-4 w-4" />
                   </Link>
                 </div>
@@ -134,4 +134,5 @@ export default function FacilityDashboardPage() {
     </div>
   );
 }
+
 
