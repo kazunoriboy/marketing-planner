@@ -551,3 +551,4 @@ class TestIntegration:
             headers={"Authorization": f"Bearer {other_facility_admin_token}"}
         )
         assert original_response.status_code == 403
+

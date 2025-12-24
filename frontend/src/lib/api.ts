@@ -517,6 +517,26 @@ export interface CreativeGenerationRequest {
   generate_ad_copy?: boolean;
 }
 
+// 口コミ関連の型
+export interface ReviewUrlsUpdate {
+  jalan?: string;
+  google?: string;
+}
+
+export interface ReviewUrlsResponse {
+  hotel_id: number;
+  review_urls: Record<string, string>;
+  updated_at: string;
+}
+
+export interface ReviewAnalysisResponse {
+  session_id: number;
+  reviews_summary: Record<string, unknown>;
+  sources: Array<Record<string, unknown>>;
+  total_reviews: number;
+  analyzed_at: string;
+}
+
 export const marketingApi = {
   // ============================================
   // 分析 API
@@ -598,6 +618,48 @@ export const marketingApi = {
   async analyzeMarket(hotelId: number, radiusKm: number = 10): Promise<MarketResearchResponse> {
     return apiRequest<MarketResearchResponse>(
       `/api/analysis/hotels/${hotelId}/market?radius_km=${radiusKm}`,
+      {
+        method: "POST",
+      },
+      "facility"
+    );
+  },
+
+  // ============================================
+  // 口コミ収集・分析 API
+  // ============================================
+
+  /**
+   * 口コミURLを取得
+   */
+  async getReviewUrls(hotelId: number): Promise<ReviewUrlsResponse> {
+    return apiRequest<ReviewUrlsResponse>(
+      `/api/analysis/hotels/${hotelId}/review-urls`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * 口コミURLを登録・更新
+   */
+  async updateReviewUrls(hotelId: number, urls: ReviewUrlsUpdate): Promise<ReviewUrlsResponse> {
+    return apiRequest<ReviewUrlsResponse>(
+      `/api/analysis/hotels/${hotelId}/review-urls`,
+      {
+        method: "PUT",
+        body: JSON.stringify(urls),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 口コミを収集・分析（Dify + Jina Reader）
+   */
+  async analyzeReviews(hotelId: number): Promise<ReviewAnalysisResponse> {
+    return apiRequest<ReviewAnalysisResponse>(
+      `/api/analysis/hotels/${hotelId}/reviews/analyze`,
       {
         method: "POST",
       },

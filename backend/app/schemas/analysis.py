@@ -55,9 +55,36 @@ class HotelResponse(BaseModel):
     website: Optional[str]
     features: Dict
     strengths: Dict
+    review_urls: Optional[Dict] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+# ============================================
+# 口コミ関連スキーマ
+# ============================================
+
+class ReviewUrlsUpdate(BaseModel):
+    """口コミURL更新リクエスト"""
+    jalan: Optional[str] = None
+    google: Optional[str] = None
+
+
+class ReviewUrlsResponse(BaseModel):
+    """口コミURL取得レスポンス"""
+    hotel_id: int
+    review_urls: Dict
+    updated_at: datetime
+
+
+class ReviewAnalysisResponse(BaseModel):
+    """口コミ分析レスポンス"""
+    session_id: int
+    reviews_summary: Dict
+    sources: List[Dict]
+    total_reviews: int
+    analyzed_at: datetime
 
 

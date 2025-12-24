@@ -1,6 +1,8 @@
 import os
-from typing import Optional
+import base64
+from typing import Optional, Tuple
 import google.generativeai as genai
+from google.generativeai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,6 +91,48 @@ class LLMClient:
             max_tokens=max_tokens,
             temperature=0.3  # より決定論的な出力のため温度を低く
         )
+    
+    async def generate_image(
+        self,
+        prompt: str,
+        aspect_ratio: str = "16:9"
+    ) -> Tuple[bytes, str]:
+        """
+        テキストから画像を生成（Gemini 2.5 Flash Image / Nano Banana）
+        
+        Args:
+            prompt: 画像生成プロンプト
+            aspect_ratio: アスペクト比（"1:1", "16:9", "9:16" など）
+        
+        Returns:
+            (画像バイナリデータ, MIMEタイプ) のタプル
+        """
+        try:
+            # 新しい google-genai パッケージを使用
+            from google import genai as genai_new
+            from google.genai import types as genai_types
+            
+            # クライアントを初期化（API Keyは環境変数から自動取得）
+            client = genai_new.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+            
+            # 画像生成
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-exp",
+                contents=[prompt],
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["Text", "Image"]
+                )
+            )
+            
+            # レスポンスから画像データを抽出
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'inline_data') and part.inline_data is not None:
+                    return part.inline_data.data, part.inline_data.mime_type
+            
+            raise Exception("画像が生成されませんでした")
+                
+        except Exception as e:
+            raise Exception(f"画像生成エラー: {str(e)}")
 
 
 # シングルトンインスタンス

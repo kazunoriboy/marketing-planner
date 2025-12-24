@@ -90,6 +90,10 @@ class Hotel(SQLModel, table=True):
     features: dict = Field(default_factory=dict, sa_column=Column(JSON))
     strengths: dict = Field(default_factory=dict, sa_column=Column(JSON))
     
+    # 口コミURL（複数サイト対応）
+    # 例: {"jalan": "https://...", "google": "https://..."}
+    review_urls: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -165,7 +169,7 @@ class CreativeAsset(SQLModel, table=True):
     marketing_plan_id: int = Field(foreign_key="marketing_plans.id")
     
     # LP（ランディングページ）
-    lp_source_code: Optional[str] = None  # ReactコンポーネントコードまたはURL
+    lp_source_code: Optional[str] = None  # HTML + CSS + JSシングルファイルのソースコード
     lp_preview_url: Optional[str] = None
     
     # 広告画像

@@ -190,3 +190,4 @@ async def change_password(
     session.commit()
     
     return {"message": "パスワードを変更しました"}
+

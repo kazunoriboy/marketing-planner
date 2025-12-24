@@ -128,3 +128,4 @@ async def get_current_admin(
         name=admin.name,
         is_active=admin.is_active,
     )
+

@@ -35,3 +35,4 @@ export function useHotelId(): number {
   const { hotelId } = useHotel();
   return hotelId;
 }
+

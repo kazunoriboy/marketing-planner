@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     V0_API_KEY: Optional[str] = None
     NANO_BANANA_API_KEY: Optional[str] = None
     
+    # Dify API設定（口コミ収集用）
+    DIFY_API_URL: str = "http://localhost/v1"
+    DIFY_API_KEY: Optional[str] = None
+    
     # アプリケーション設定
     APP_NAME: str = "Marketing Planner API"
     APP_VERSION: str = "1.0.0"

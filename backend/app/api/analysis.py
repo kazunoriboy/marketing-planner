@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session, select
 from typing import List
+from datetime import datetime
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
@@ -10,10 +11,14 @@ from app.schemas.analysis import (
     HotelResponse,
     CSVAnalysisResponse,
     MarketResearchRequest,
-    MarketResearchResponse
+    MarketResearchResponse,
+    ReviewUrlsUpdate,
+    ReviewUrlsResponse,
+    ReviewAnalysisResponse,
 )
 from app.services.csv_analyzer import CSVAnalyzer
 from app.services.analysis_service import AnalysisService
+from app.services.review_service import get_review_service
 from app.auth.dependencies import get_current_facility_admin, require_hotel_access
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -603,5 +608,150 @@ async def _analyze_regional_trends(address: str, llm_client) -> str:
     )
     
     return response
+
+
+# ============================================
+# 口コミ収集・分析エンドポイント
+# ============================================
+
+@router.get("/hotels/{hotel_id}/review-urls", response_model=ReviewUrlsResponse)
+async def get_review_urls(
+    hotel_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    口コミURLを取得
+    
+    登録されている口コミページのURLを取得します。
+    """
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    return ReviewUrlsResponse(
+        hotel_id=hotel_id,
+        review_urls=hotel.review_urls or {},
+        updated_at=hotel.updated_at
+    )
+
+
+@router.put("/hotels/{hotel_id}/review-urls", response_model=ReviewUrlsResponse)
+async def update_review_urls(
+    hotel_id: int,
+    urls: ReviewUrlsUpdate,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    口コミURLを登録・更新
+    
+    じゃらん、Googleマップなどの口コミページURLを登録します。
+    """
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # URLの検証
+    review_service = get_review_service()
+    
+    new_urls = {}
+    if urls.jalan:
+        if not review_service.validate_url(urls.jalan, "jalan"):
+            raise HTTPException(
+                status_code=400,
+                detail="じゃらんのURLの形式が不正です"
+            )
+        new_urls["jalan"] = urls.jalan
+    
+    if urls.google:
+        if not review_service.validate_url(urls.google, "google"):
+            raise HTTPException(
+                status_code=400,
+                detail="GoogleマップのURLの形式が不正です"
+            )
+        new_urls["google"] = urls.google
+    
+    # 既存のURLとマージ
+    current_urls = hotel.review_urls or {}
+    current_urls.update(new_urls)
+    
+    hotel.review_urls = current_urls
+    hotel.updated_at = datetime.utcnow()
+    
+    session.add(hotel)
+    session.commit()
+    session.refresh(hotel)
+    
+    return ReviewUrlsResponse(
+        hotel_id=hotel_id,
+        review_urls=hotel.review_urls,
+        updated_at=hotel.updated_at
+    )
+
+
+@router.post("/hotels/{hotel_id}/reviews/analyze", response_model=ReviewAnalysisResponse)
+async def analyze_reviews(
+    hotel_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    口コミを収集・分析
+    
+    登録されている口コミURLからDify + Jina Readerを使用して
+    口コミを収集し、分析結果を保存します。
+    """
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    review_urls = hotel.review_urls or {}
+    if not review_urls:
+        raise HTTPException(
+            status_code=400,
+            detail="口コミURLが登録されていません。先にURLを登録してください。"
+        )
+    
+    try:
+        # 口コミ収集・分析を実行
+        review_service = get_review_service()
+        analysis_result = await review_service.analyze_multiple_sources(review_urls)
+        
+        # reviews_summary形式に変換
+        reviews_summary = review_service.format_for_reviews_summary(analysis_result)
+        
+        # 分析セッションを更新
+        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+        analysis_session = session.exec(statement).first()
+        
+        if analysis_session:
+            analysis_session.reviews_summary = reviews_summary
+            analysis_session.updated_at = datetime.utcnow()
+        else:
+            analysis_session = AnalysisSession(
+                hotel_id=hotel_id,
+                reviews_summary=reviews_summary
+            )
+            session.add(analysis_session)
+        
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return ReviewAnalysisResponse(
+            session_id=analysis_session.id,
+            reviews_summary=reviews_summary,
+            sources=analysis_result.get("sources", []),
+            total_reviews=reviews_summary.get("total_reviews", 0),
+            analyzed_at=datetime.utcnow()
+        )
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"口コミ分析エラー: {str(e)}"
+        )
 
 

@@ -1,5 +1,7 @@
 import json
 import re
+import os
+import uuid
 from typing import Dict, Optional, Tuple
 from app.models import MarketingPlan
 
@@ -28,8 +30,10 @@ class CreativeGenerator:
         prompt = self._create_lp_generation_prompt(marketing_plan)
         
         system_prompt = """あなたは経験豊富なフロントエンドエンジニアです。
-React + TypeScript + Tailwind CSSを使用して、モダンで美しいランディングページを作成してください。
-コンポーネントは完全に動作し、すぐに使用できる状態で提供してください。"""
+HTML + CSS + JavaScript のシングルファイルで、モダンで美しいランディングページを作成してください。
+すべてのスタイルとスクリプトは1つのHTMLファイルに含めてください（<style>タグと<script>タグを使用）。
+外部ライブラリやフレームワークを使用せず、純粋なHTML/CSS/JavaScriptで実装してください。
+完全に動作し、そのままウェブサーバーにデプロイできる状態で提供してください。"""
         
         response = await llm_client.generate_text(
             user_prompt=prompt,
@@ -45,37 +49,111 @@ React + TypeScript + Tailwind CSSを使用して、モダンで美しいラン�
     async def generate_ad_images(
         self,
         marketing_plan: MarketingPlan,
-        llm_client
+        llm_client,
+        hotel_id: int
     ) -> Tuple[Dict, str]:
         """
-        広告画像生成用のプロンプトを作成
-        
-        Note: 実際の画像生成はNano Banana Pro等の画像生成APIを呼び出す
-        現時点ではプロンプトのみ生成
+        広告画像を生成（Gemini 2.5 Flash Image / Nano Banana）
         
         Args:
             marketing_plan: マーケティングプラン
             llm_client: LLMクライアント
+            hotel_id: ホテルID（画像保存パス用）
         
         Returns:
-            (画像プロンプト辞書, 生成プロンプト) のタプル
+            (画像URL辞書, 生成プロンプト) のタプル
         """
-        prompt = self._create_image_generation_prompt(marketing_plan)
+        # 画像保存ディレクトリを作成
+        image_dir = os.path.join("static", "generated_images", str(hotel_id))
+        os.makedirs(image_dir, exist_ok=True)
         
-        system_prompt = """あなたは画像生成AIのプロンプトエンジニアです。
-DALL-E、Midjourney、Stable Diffusionなどで使用できる高品質な画像生成プロンプトを
-英語で作成してください。"""
+        # 各用途の画像プロンプトを生成
+        image_configs = self._create_image_prompts_for_plan(marketing_plan)
         
-        response = await llm_client.generate_structured_output(
-            user_prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=2000
-        )
+        image_urls = {}
+        generation_log = []
+        has_quota_error = False
+        quota_error_message = None
         
-        # プロンプトを抽出
-        image_prompts = self._parse_image_prompts(response)
+        for image_type, config in image_configs.items():
+            try:
+                # 画像を生成
+                image_data, mime_type = await llm_client.generate_image(
+                    prompt=config["prompt"],
+                    aspect_ratio=config.get("aspect_ratio", "16:9")
+                )
+                
+                # ファイル拡張子を決定
+                ext = "png" if "png" in mime_type else "jpg"
+                filename = f"{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
+                filepath = os.path.join(image_dir, filename)
+                
+                # 画像を保存
+                with open(filepath, "wb") as f:
+                    f.write(image_data)
+                
+                # URLパスを保存（フロントエンドからアクセス可能なパス）
+                image_urls[image_type] = f"/static/generated_images/{hotel_id}/{filename}"
+                generation_log.append(f"{image_type}: 生成成功")
+                
+            except Exception as e:
+                error_str = str(e)
+                print(f"画像生成エラー ({image_type}): {error_str}")
+                
+                # APIクォータエラーを検出
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower():
+                    has_quota_error = True
+                    quota_error_message = "API利用制限に達しました。しばらく待ってから再度お試しください。"
+                    image_urls[image_type] = {"error": "quota_exceeded", "message": quota_error_message}
+                else:
+                    image_urls[image_type] = {"error": "generation_failed", "message": f"画像生成に失敗しました: {error_str[:100]}"}
+                
+                generation_log.append(f"{image_type}: 生成失敗 - {error_str[:100]}")
         
-        return image_prompts, prompt
+        prompt_summary = self._format_generation_summary(image_configs, generation_log)
+        
+        return image_urls, prompt_summary
+    
+    def _create_image_prompts_for_plan(self, plan: MarketingPlan) -> Dict:
+        """マーケティングプランに基づいて画像生成プロンプトを作成"""
+        target_info = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else "一般"
+        
+        return {
+            "hero_image": {
+                "prompt": f"""A stunning, professional photograph of a Japanese ryokan (traditional inn) exterior or interior. 
+The scene should convey: {plan.concept}
+Target audience: {target_info}
+Style: High-end hotel photography, warm and inviting atmosphere, soft natural lighting.
+The image should feel luxurious yet authentic Japanese hospitality.""",
+                "aspect_ratio": "16:9"
+            },
+            "feature_image": {
+                "prompt": f"""A beautiful photograph showcasing a special feature of a Japanese accommodation.
+Theme: {plan.plan_name}
+Concept: {plan.concept}
+Style: Editorial photography, highlighting unique amenities or experiences, warm colors.
+Focus on details that appeal to travelers seeking authentic experiences.""",
+                "aspect_ratio": "4:3"
+            },
+            "social_ad_image": {
+                "prompt": f"""An eye-catching social media advertisement image for a Japanese hotel/ryokan.
+Campaign: {plan.plan_name}
+Message: {plan.concept}
+Style: Modern, clean, Instagram-worthy, with space for text overlay.
+The image should stop scrollers and evoke desire to travel.""",
+                "aspect_ratio": "1:1"
+            }
+        }
+    
+    def _format_generation_summary(self, configs: Dict, logs: list) -> str:
+        """生成サマリーをフォーマット"""
+        summary = "【画像生成サマリー】\n\n"
+        for image_type, config in configs.items():
+            summary += f"■ {image_type}\n"
+            summary += f"  プロンプト: {config['prompt'][:100]}...\n"
+            summary += f"  アスペクト比: {config.get('aspect_ratio', '16:9')}\n\n"
+        summary += "\n【生成ログ】\n" + "\n".join(logs)
+        return summary
     
     async def generate_ad_copy(
         self,
@@ -122,8 +200,12 @@ DALL-E、Midjourney、Stable Diffusionなどで使用できる高品質な画像
 特典: {json.dumps(plan.benefits, ensure_ascii=False, indent=2)}
 
 【要件】
-- React + TypeScript + Tailwind CSSで実装
-- レスポンシブデザイン
+- HTML + CSS + JavaScript のシングルファイル（.html）で実装
+- CSSは<style>タグ内に記述
+- JavaScriptは<script>タグ内に記述
+- 外部ライブラリやCDNは使用しない（純粋なHTML/CSS/JavaScript）
+- レスポンシブデザイン（モバイル対応）
+- モダンで美しいデザイン
 - 以下のセクションを含める：
   1. ヒーローセクション（キャッチコピーとCTA）
   2. プランの特徴・特典
@@ -131,7 +213,8 @@ DALL-E、Midjourney、Stable Diffusionなどで使用できる高品質な画像
   4. 予約フォーム
   5. フッター
 
-完全に動作するReactコンポーネントのコードを生成してください。
+完全に動作する単一のHTMLファイルを生成してください。
+必ず<!DOCTYPE html>から始まる完全なHTMLドキュメントを出力してください。
 """
     
     def _create_image_generation_prompt(self, plan: MarketingPlan) -> str:
@@ -201,8 +284,8 @@ DALL-E、Midjourney、Stable Diffusionなどで使用できる高品質な画像
     
     def _extract_code_from_response(self, response: str) -> str:
         """レスポンスからコードブロックを抽出"""
-        # マークダウンのコードブロックを抽出
-        code_match = re.search(r'```(?:tsx|typescript|jsx|javascript)?\n(.*?)\n```', response, re.DOTALL)
+        # マークダウンのコードブロックを抽出（HTML優先）
+        code_match = re.search(r'```(?:html|tsx|typescript|jsx|javascript)?\n(.*?)\n```', response, re.DOTALL)
         if code_match:
             return code_match.group(1)
         

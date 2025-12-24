@@ -325,3 +325,4 @@ async def delete_hotel(
     # 施設を削除
     session.delete(hotel)
     session.commit()
+

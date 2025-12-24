@@ -23,6 +23,7 @@ httpx
 
 # AI SDK
 google-generativeai
+google-genai
 
 # Utilities
 pydantic

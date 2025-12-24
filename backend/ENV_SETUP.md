@@ -18,6 +18,10 @@ MANUS_API_KEY=your_manus_api_key_here
 V0_API_KEY=your_v0_api_key_here
 NANO_BANANA_API_KEY=your_nano_banana_api_key_here
 
+# Dify API Settings (for review collection)
+DIFY_API_URL=http://your-dify-host/v1
+DIFY_API_KEY=app-xxxxxxxxxxxxxxxx
+
 # Application Settings
 APP_NAME=Marketing Planner API
 APP_VERSION=1.0.0
@@ -43,6 +47,27 @@ PostgreSQLデータベースの接続URL。
 Docker Composeを使用する場合は、デフォルトの設定で動作します。
 
 ## オプション設定
+
+### Dify API設定（口コミ収集機能）
+
+口コミ収集機能を使用する場合は、以下の設定が必要です：
+
+- `DIFY_API_URL`: DifyのAPIエンドポイント（例: `http://localhost/v1` または `https://api.dify.ai/v1`）
+- `DIFY_API_KEY`: Difyアプリケーションの APIキー（`app-` で始まる）
+
+#### Difyワークフローの設定
+
+口コミ収集用のDifyワークフローを作成する必要があります：
+
+1. Difyで新しいワークフローを作成
+2. 以下のノードを設定：
+   - **開始ノード**: 入力変数 `review_url`（文字列）、`site_type`（文字列）
+   - **HTTPリクエストノード**: `https://r.jina.ai/{{review_url}}` を呼び出し
+   - **LLMノード**: 取得したコンテンツから口コミを抽出・分析
+   - **終了ノード**: 出力変数 `reviews`（配列）、`summary`（オブジェクト）
+3. アプリを公開してAPIキーを取得
+
+### その他のAPIキー
 
 以下のAPIキーは、将来的な機能拡張で使用する予定です：
 

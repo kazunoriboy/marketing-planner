@@ -75,11 +75,12 @@ async def generate_creative_assets_authenticated(
                 llm_client=llm_client
             )
         
-        # 画像プロンプト生成
+        # 画像生成（Gemini 2.5 Flash Image / Nano Banana）
         if request.generate_images:
             image_prompts, image_gen_prompt = await generator.generate_ad_images(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client
+                llm_client=llm_client,
+                hotel_id=hotel_id
             )
         
         # 広告コピー生成

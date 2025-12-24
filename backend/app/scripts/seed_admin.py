@@ -81,3 +81,4 @@ def create_initial_admin():
 
 if __name__ == "__main__":
     create_initial_admin()
+

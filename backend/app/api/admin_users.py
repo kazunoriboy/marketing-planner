@@ -324,3 +324,4 @@ async def remove_hotel_from_admin(
     
     session.delete(permission)
     session.commit()
+

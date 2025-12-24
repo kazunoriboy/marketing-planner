@@ -200,3 +200,4 @@ class TestPermissionRoles:
         assert owner.value in ["owner"]
         assert editor.value in ["owner", "editor"]
         assert viewer.value in ["owner", "editor", "viewer"]
+

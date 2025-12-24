@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, Search, Loader2, Building2, MessageSquare, MapPin } from "lucide-react";
+import { TrendingUp, Search, Loader2, Building2, MapPin } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, AnalysisSession } from "@/lib/api";
 
@@ -59,7 +59,7 @@ export default function MarketPage() {
           <div className="glass-card p-8 mb-8">
             <div className="flex items-center gap-3 mb-6">
               <Search className="w-6 h-6 text-green-400" />
-              <h3 className="text-2xl font-bold text-white">市場調査を実行</h3>
+              <h3 className="text-2xl font-bold text-white">エリア市場調査</h3>
             </div>
 
             <div className="flex items-center gap-2 mb-4 text-slate-300">
@@ -146,49 +146,6 @@ export default function MarketPage() {
                 )}
               </div>
 
-              {/* 口コミ分析 */}
-              {session?.reviews_summary && Object.keys(session.reviews_summary).length > 0 && (
-                <div className="glass-card p-8 mb-8">
-                  <div className="flex items-center gap-3 mb-6">
-                    <MessageSquare className="w-6 h-6 text-blue-400" />
-                    <h3 className="text-2xl font-bold text-white">口コミ傾向</h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {(session.reviews_summary as Record<string, unknown>).positive_themes && (
-                      <div>
-                        <p className="text-sm text-green-400 mb-2">好評ポイント</p>
-                        <ul className="space-y-1">
-                          {((session.reviews_summary as Record<string, unknown>).positive_themes as string[]).map((theme, idx) => (
-                            <li key={idx} className="text-slate-300 text-sm">• {theme}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {(session.reviews_summary as Record<string, unknown>).negative_themes && (
-                      <div>
-                        <p className="text-sm text-red-400 mb-2">不評ポイント</p>
-                        <ul className="space-y-1">
-                          {((session.reviews_summary as Record<string, unknown>).negative_themes as string[]).map((theme, idx) => (
-                            <li key={idx} className="text-slate-300 text-sm">• {theme}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {(session.reviews_summary as Record<string, unknown>).guest_expectations && (
-                      <div>
-                        <p className="text-sm text-yellow-400 mb-2">お客様の期待</p>
-                        <ul className="space-y-1">
-                          {((session.reviews_summary as Record<string, unknown>).guest_expectations as string[]).map((exp, idx) => (
-                            <li key={idx} className="text-slate-300 text-sm">• {exp}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {/* 地域トレンド */}
               {session?.regional_trends && (
                 <div className="glass-card p-8">
@@ -210,3 +167,4 @@ export default function MarketPage() {
     </section>
   );
 }
+

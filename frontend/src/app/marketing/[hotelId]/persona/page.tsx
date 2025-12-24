@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText } from "lucide-react";
+import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, AnalysisSession, CSVAnalysisResponse } from "@/lib/api";
+import { marketingApi, AnalysisSession, CSVAnalysisResponse, ReviewUrlsUpdate } from "@/lib/api";
 
 // 統計カードのラベル定義
 const STAT_LABELS: Record<string, { label: string; icon: React.ElementType }> = {
@@ -253,11 +253,27 @@ export default function PersonaPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 口コミURL関連のstate
+  const [reviewUrls, setReviewUrls] = useState<Record<string, string>>({});
+  const [jalanUrl, setJalanUrl] = useState("");
+  const [googleUrl, setGoogleUrl] = useState("");
+  const [savingUrls, setSavingUrls] = useState(false);
+  const [analyzingReviews, setAnalyzingReviews] = useState(false);
+  const [urlSaveMessage, setUrlSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     async function loadData() {
       try {
-        const sessionData = await marketingApi.getAnalysisSession(hotelId);
+        const [sessionData, urlsData] = await Promise.all([
+          marketingApi.getAnalysisSession(hotelId),
+          marketingApi.getReviewUrls(hotelId).catch(() => null),
+        ]);
         setSession(sessionData);
+        if (urlsData?.review_urls) {
+          setReviewUrls(urlsData.review_urls);
+          setJalanUrl(urlsData.review_urls.jalan || "");
+          setGoogleUrl(urlsData.review_urls.google || "");
+        }
       } catch (error) {
         console.error("Failed to load session:", error);
       } finally {
@@ -299,13 +315,49 @@ export default function PersonaPage() {
     }
   };
 
+  const handleSaveReviewUrls = async () => {
+    setSavingUrls(true);
+    setUrlSaveMessage(null);
+    try {
+      const urls: ReviewUrlsUpdate = {};
+      if (jalanUrl.trim()) urls.jalan = jalanUrl.trim();
+      if (googleUrl.trim()) urls.google = googleUrl.trim();
+
+      const result = await marketingApi.updateReviewUrls(hotelId, urls);
+      setReviewUrls(result.review_urls);
+      setUrlSaveMessage({ type: "success", text: "口コミURLを保存しました" });
+    } catch (error) {
+      console.error("Failed to save review URLs:", error);
+      setUrlSaveMessage({ type: "error", text: "URLの保存に失敗しました。URLの形式を確認してください。" });
+    } finally {
+      setSavingUrls(false);
+    }
+  };
+
+  const handleAnalyzeReviews = async () => {
+    setAnalyzingReviews(true);
+    try {
+      await marketingApi.analyzeReviews(hotelId);
+      // Reload session data
+      const sessionData = await marketingApi.getAnalysisSession(hotelId);
+      setSession(sessionData);
+    } catch (error) {
+      console.error("Review analysis failed:", error);
+      alert("口コミ分析に失敗しました。Difyの設定を確認してください。");
+    } finally {
+      setAnalyzingReviews(false);
+    }
+  };
+
   const hasCustomerData = session?.csv_statistics && Object.keys(session.csv_statistics).length > 0;
+  const hasReviewUrls = Object.keys(reviewUrls).length > 0;
+  const hasReviewData = session?.reviews_summary && Object.keys(session.reviews_summary).length > 0;
 
   return (
     <section className="animate-fadeIn">
       <h2 className="text-3xl font-bold text-white mb-2">顧客を知る</h2>
       <p className="text-slate-400 mb-8">
-        {hotel.name}の顧客データを分析し、ターゲット顧客を特定します
+        {hotel.name}の顧客データと口コミを分析し、ターゲット顧客を特定します
       </p>
 
       {loading ? (
@@ -369,12 +421,190 @@ export default function PersonaPage() {
             )}
           </div>
 
-          {/* 分析結果セクション */}
+          {/* 口コミURL登録セクション */}
+          <div className="glass-card p-8 mb-8">
+            <div className="flex items-center gap-3 mb-6">
+              <Link2 className="w-6 h-6 text-blue-400" />
+              <h3 className="text-2xl font-bold text-white">口コミを収集・分析</h3>
+            </div>
+
+            <p className="text-slate-400 text-sm mb-6">
+              じゃらんやGoogleマップの口コミページURLを登録すると、実際の口コミを収集・分析できます。
+            </p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm text-slate-300 mb-2">
+                  じゃらん 口コミページURL
+                </label>
+                <input
+                  type="url"
+                  value={jalanUrl}
+                  onChange={(e) => setJalanUrl(e.target.value)}
+                  placeholder="https://www.jalan.net/yad??????/kuchikomi/"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-300 mb-2">
+                  Googleマップ 口コミURL
+                </label>
+                <input
+                  type="url"
+                  value={googleUrl}
+                  onChange={(e) => setGoogleUrl(e.target.value)}
+                  placeholder="https://www.google.com/maps/place/..."
+                  className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {urlSaveMessage && (
+              <div className={`mb-4 p-3 rounded-lg text-sm ${
+                urlSaveMessage.type === "success"
+                  ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                  : "bg-red-500/20 text-red-300 border border-red-500/30"
+              }`}>
+                {urlSaveMessage.text}
+              </div>
+            )}
+
+            <div className="flex gap-4">
+              <button
+                onClick={handleSaveReviewUrls}
+                disabled={savingUrls || (!jalanUrl.trim() && !googleUrl.trim())}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {savingUrls ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="w-5 h-5" />
+                    URLを保存
+                  </>
+                )}
+              </button>
+
+              {hasReviewUrls && (
+                <button
+                  onClick={handleAnalyzeReviews}
+                  disabled={analyzingReviews}
+                  className="flex-1 bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-lg hover:from-blue-600 hover:to-purple-600 transition-all font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {analyzingReviews ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      口コミ収集中...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-5 h-5" />
+                      口コミを収集・分析
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* 登録済みURL表示 */}
+            {hasReviewUrls && (
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <p className="text-sm text-slate-400 mb-3">登録済みURL</p>
+                <div className="space-y-2">
+                  {reviewUrls.jalan && (
+                    <a
+                      href={reviewUrls.jalan}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      じゃらん: {reviewUrls.jalan.substring(0, 50)}...
+                    </a>
+                  )}
+                  {reviewUrls.google && (
+                    <a
+                      href={reviewUrls.google}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Google: {reviewUrls.google.substring(0, 50)}...
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 口コミ分析結果 */}
+          {hasReviewData && (
+            <div className="glass-card p-8 mb-8">
+              <div className="flex items-center gap-3 mb-6">
+                <MessageSquare className="w-6 h-6 text-blue-400" />
+                <h3 className="text-2xl font-bold text-white">口コミ分析結果</h3>
+                {(session.reviews_summary as Record<string, unknown>).analyzed_at && (
+                  <span className="text-xs text-slate-500 ml-auto">
+                    分析日時: {new Date((session.reviews_summary as Record<string, unknown>).analyzed_at as string).toLocaleString("ja-JP")}
+                  </span>
+                )}
+              </div>
+
+              {/* 収集件数表示 */}
+              {(session.reviews_summary as Record<string, unknown>).total_reviews !== undefined && (
+                <div className="mb-6 p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                  <p className="text-sm text-blue-300">
+                    収集した口コミ数: <span className="font-bold">{(session.reviews_summary as Record<string, unknown>).total_reviews as number}件</span>
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {(session.reviews_summary as Record<string, unknown>).positive_themes && (
+                  <div>
+                    <p className="text-sm text-green-400 mb-2">好評ポイント</p>
+                    <ul className="space-y-1">
+                      {((session.reviews_summary as Record<string, unknown>).positive_themes as string[]).map((theme, idx) => (
+                        <li key={idx} className="text-slate-300 text-sm">• {theme}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(session.reviews_summary as Record<string, unknown>).negative_themes && (
+                  <div>
+                    <p className="text-sm text-red-400 mb-2">不評ポイント</p>
+                    <ul className="space-y-1">
+                      {((session.reviews_summary as Record<string, unknown>).negative_themes as string[]).map((theme, idx) => (
+                        <li key={idx} className="text-slate-300 text-sm">• {theme}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(session.reviews_summary as Record<string, unknown>).guest_expectations && (
+                  <div>
+                    <p className="text-sm text-yellow-400 mb-2">お客様の期待</p>
+                    <ul className="space-y-1">
+                      {((session.reviews_summary as Record<string, unknown>).guest_expectations as string[]).map((exp, idx) => (
+                        <li key={idx} className="text-slate-300 text-sm">• {exp}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 顧客データ分析結果セクション */}
           {hasCustomerData && (
             <div className="glass-card p-8">
               <div className="flex items-center gap-3 mb-6">
                 <Users className="w-6 h-6 text-purple-400" />
-                <h3 className="text-2xl font-bold text-white">顧客分析結果</h3>
+                <h3 className="text-2xl font-bold text-white">顧客データ分析結果</h3>
               </div>
 
               {/* インサイト */}
@@ -405,3 +635,4 @@ export default function PersonaPage() {
     </section>
   );
 }
+

@@ -66,3 +66,4 @@ def validate_password_strength(password: str) -> tuple[bool, list[str]]:
         errors.append("パスワードには数字を含める必要があります")
     
     return (len(errors) == 0, errors)
+

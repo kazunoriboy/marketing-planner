@@ -111,3 +111,4 @@ class FacilityAdminHotelResponse(BaseModel):
     
     class Config:
         from_attributes = True
+

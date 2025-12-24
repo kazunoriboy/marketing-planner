@@ -143,20 +143,6 @@ export default function ContentPage() {
                   <label className="flex items-center gap-2 text-slate-300">
                     <input
                       type="checkbox"
-                      checked={generateOptions.generate_images}
-                      onChange={(e) =>
-                        setGenerateOptions((prev) => ({
-                          ...prev,
-                          generate_images: e.target.checked,
-                        }))
-                      }
-                      className="rounded"
-                    />
-                    広告画像プロンプト
-                  </label>
-                  <label className="flex items-center gap-2 text-slate-300">
-                    <input
-                      type="checkbox"
                       checked={generateOptions.generate_ad_copy}
                       onChange={(e) =>
                         setGenerateOptions((prev) => ({
@@ -167,6 +153,20 @@ export default function ContentPage() {
                       className="rounded"
                     />
                     広告コピー
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={generateOptions.generate_images}
+                      onChange={(e) =>
+                        setGenerateOptions((prev) => ({
+                          ...prev,
+                          generate_images: e.target.checked,
+                        }))
+                      }
+                      className="rounded"
+                    />
+                    広告画像
                   </label>
                 </div>
               </div>
@@ -219,28 +219,78 @@ export default function ContentPage() {
                   <div className="space-y-4">
                     {Object.entries(currentAsset.ad_copy).map(([key, value]) => (
                       <div key={key} className="p-4 bg-white/5 rounded-lg">
-                        <p className="text-sm text-slate-400 mb-1">{key}</p>
-                        <p className="text-slate-300">{String(value)}</p>
+                        <p className="text-sm text-slate-400 mb-2 font-medium">{key}</p>
+                        {typeof value === "object" && value !== null ? (
+                          <div className="space-y-2">
+                            {Object.entries(value as Record<string, unknown>).map(([subKey, subValue]) => (
+                              <div key={subKey}>
+                                <span className="text-xs text-slate-500">{subKey}: </span>
+                                {Array.isArray(subValue) ? (
+                                  <span className="text-slate-300">{subValue.join(" ")}</span>
+                                ) : (
+                                  <span className="text-slate-300">{String(subValue)}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-slate-300">{String(value)}</p>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* 画像プロンプト */}
+              {/* 生成画像 */}
               {currentAsset.ad_image_urls && Object.keys(currentAsset.ad_image_urls).length > 0 && (
                 <div className="glass-card p-6 lg:col-span-2">
                   <div className="flex items-center gap-3 mb-4">
                     <Image className="w-6 h-6 text-orange-400" />
-                    <h4 className="text-xl font-bold text-white">画像生成プロンプト</h4>
+                    <h4 className="text-xl font-bold text-white">生成画像</h4>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.entries(currentAsset.ad_image_urls).map(([key, value]) => (
-                      <div key={key} className="p-4 bg-white/5 rounded-lg">
-                        <p className="text-sm text-slate-400 mb-1">{key}</p>
-                        <p className="text-slate-300 text-sm">{String(value)}</p>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {Object.entries(currentAsset.ad_image_urls).map(([key, value]) => {
+                      const imageValue = value as Record<string, unknown> | string | null;
+                      const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
+                      const isQuotaError = isError && imageValue.error === "quota_exceeded";
+                      
+                      return (
+                        <div key={key} className="p-4 bg-white/5 rounded-lg">
+                          <p className="text-sm text-slate-400 mb-3 font-medium">{key}</p>
+                          {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
+                            // 画像URLの場合は実際の画像を表示
+                            <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-800">
+                              <img
+                                src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${imageValue}`}
+                                alt={key}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : isQuotaError ? (
+                            // APIクォータエラーの場合
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                              <p className="text-yellow-400 text-sm font-medium mb-1">⚠️ API制限エラー</p>
+                              <p className="text-yellow-300/80 text-xs">
+                                {String((imageValue as Record<string, unknown>).message || "API利用制限に達しました。しばらく待ってから再度お試しください。")}
+                              </p>
+                            </div>
+                          ) : isError ? (
+                            // その他のエラーの場合
+                            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                              <p className="text-red-400 text-sm font-medium mb-1">❌ 生成エラー</p>
+                              <p className="text-red-300/80 text-xs">
+                                {String((imageValue as Record<string, unknown>).message || "画像生成に失敗しました")}
+                              </p>
+                            </div>
+                          ) : imageValue ? (
+                            <p className="text-slate-300 text-sm">{String(imageValue)}</p>
+                          ) : (
+                            <p className="text-slate-500 text-sm italic">生成に失敗しました</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -290,3 +340,4 @@ export default function ContentPage() {
     </section>
   );
 }
+
