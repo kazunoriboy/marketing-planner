@@ -702,11 +702,15 @@ async def analyze_reviews(
     登録されている口コミURLからDify + Jina Readerを使用して
     口コミを収集し、分析結果を保存します。
     """
+    print(f"[DEBUG] analyze_reviews called for hotel_id={hotel_id}")
+    
     hotel = session.get(Hotel, hotel_id)
     if not hotel:
         raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
     
     review_urls = hotel.review_urls or {}
+    print(f"[DEBUG] review_urls: {review_urls}")
+    
     if not review_urls:
         raise HTTPException(
             status_code=400,
@@ -715,8 +719,11 @@ async def analyze_reviews(
     
     try:
         # 口コミ収集・分析を実行
+        print("[DEBUG] Creating review_service...")
         review_service = get_review_service()
+        print("[DEBUG] Calling analyze_multiple_sources...")
         analysis_result = await review_service.analyze_multiple_sources(review_urls)
+        print(f"[DEBUG] analysis_result: {analysis_result}")
         
         # reviews_summary形式に変換
         reviews_summary = review_service.format_for_reviews_summary(analysis_result)
