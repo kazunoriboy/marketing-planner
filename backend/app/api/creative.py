@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
+from sqlalchemy.orm.attributes import flag_modified
 from typing import List
 from pydantic import BaseModel
+import os
+import uuid
+import re
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
@@ -22,6 +26,22 @@ class CreativeGenerationRequestAuth(BaseModel):
     generate_lp: bool = True
     generate_images: bool = True
     generate_ad_copy: bool = True
+
+
+class SNSPostGenerationRequest(BaseModel):
+    """SNS投稿生成リクエスト"""
+    platform: str  # "instagram", "facebook", "twitter"
+    post_type: str  # "温泉紹介", "料理紹介", "イベント告知", "その他"
+    description: str = ""  # どんな投稿を作りたいかの説明
+
+
+class SNSPostResponse(BaseModel):
+    """SNS投稿生成レスポンス"""
+    platform: str
+    post_type: str
+    content: str
+    hashtags: list[str]
+    generated_at: str
 
 
 # ============================================
@@ -456,5 +476,287 @@ async def delete_creative_asset(
     session.commit()
     
     return {"message": "クリエイティブアセットを削除しました", "asset_id": asset_id}
+
+
+@router.post("/hotels/{hotel_id}/generate-sns-post", response_model=SNSPostResponse)
+async def generate_sns_post(
+    hotel_id: int,
+    request: SNSPostGenerationRequest,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    SNS投稿を生成
+    
+    - プラットフォーム（Instagram、Facebook、Twitter）に最適化された投稿を生成
+    - 投稿タイプに応じたコンテンツを作成
+    - 説明欄の内容を反映した投稿を生成
+    """
+    from datetime import datetime
+    
+    # 施設情報を取得
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="施設が見つかりません")
+    
+    # 分析セッションを取得
+    analysis_statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(analysis_statement).first()
+    
+    # マーケティングプランがあれば取得
+    marketing_plan = None
+    if analysis_session:
+        plan_statement = select(MarketingPlan).where(
+            MarketingPlan.analysis_session_id == analysis_session.id,
+            MarketingPlan.status == "approved"
+        )
+        marketing_plan = session.exec(plan_statement).first()
+    
+    try:
+        llm_client = get_llm_client()
+        
+        # プラットフォームに応じた文字数制限とスタイル
+        platform_configs = {
+            "instagram": {
+                "max_chars": 2200,
+                "hashtag_count": "10〜15個",
+                "style": "視覚的な描写を重視し、改行を活用した読みやすいレイアウト"
+            },
+            "facebook": {
+                "max_chars": 500,
+                "hashtag_count": "3〜5個",
+                "style": "詳細な情報を含み、親しみやすいトーンで"
+            },
+            "twitter": {
+                "max_chars": 280,
+                "hashtag_count": "2〜3個",
+                "style": "簡潔で印象的、ハッシュタグ込みで140文字以内が理想"
+            }
+        }
+        
+        platform_config = platform_configs.get(request.platform.lower(), platform_configs["instagram"])
+        
+        # プロンプトを作成
+        plan_info = ""
+        if marketing_plan:
+            plan_info = f"""
+【マーケティングプラン情報】
+コンセプト: {marketing_plan.concept}
+ターゲット: {marketing_plan.target_audience}
+"""
+        
+        description_info = ""
+        if request.description.strip():
+            description_info = f"""
+【ユーザーからの要望】
+{request.description}
+
+上記の要望を必ず投稿内容に反映させてください。
+"""
+        
+        prompt = f"""以下の条件でSNS投稿を作成してください。
+
+【施設情報】
+施設名: {hotel.name}
+住所: {hotel.address}
+{plan_info}
+【投稿条件】
+プラットフォーム: {request.platform}
+投稿タイプ: {request.post_type}
+文字数制限: {platform_config['max_chars']}文字以内
+ハッシュタグ: {platform_config['hashtag_count']}
+スタイル: {platform_config['style']}
+{description_info}
+【出力形式】
+以下のJSON形式で出力してください：
+{{
+    "content": "投稿本文（ハッシュタグは含めない）",
+    "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2", ...]
+}}
+
+{request.post_type}に関する魅力的な投稿を作成してください。
+施設の特徴や魅力を活かし、{request.platform}ユーザーの興味を引く内容にしてください。
+"""
+        
+        system_prompt = """あなたは宿泊業界のSNSマーケティング専門家です。
+各プラットフォームの特性を理解し、エンゲージメントを最大化する投稿を作成してください。
+
+重要なポイント：
+- 施設の魅力を具体的に伝える
+- 感情を動かす表現を使う
+- 行動を促す言葉を入れる
+- 季節感や限定感を演出
+- 絵文字を効果的に使用"""
+
+        response = await llm_client.generate_structured_output(
+            user_prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=1000
+        )
+        
+        # レスポンスをパース
+        import json
+        import re
+        
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            result = json.loads(response)
+        
+        return SNSPostResponse(
+            platform=request.platform,
+            post_type=request.post_type,
+            content=result.get("content", ""),
+            hashtags=result.get("hashtags", []),
+            generated_at=datetime.now().isoformat()
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SNS投稿生成エラー: {str(e)}")
+
+
+@router.post("/hotels/{hotel_id}/assets/{asset_id}/lp-images/{image_type}")
+async def upload_lp_image(
+    hotel_id: int,
+    asset_id: int,
+    image_type: str,
+    file: UploadFile = File(...),
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    LP用画像をアップロードして差し替え
+    
+    - image_type: hero, feature, ambiance のいずれか
+    - 古い画像を新しい画像で置き換え
+    - HTMLファイル内の画像パスも更新
+    - DB内のlp_source_codeも更新
+    """
+    # アセットの存在確認
+    asset = session.get(CreativeAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="クリエイティブアセットが見つかりません")
+    
+    # 画像タイプの検証
+    valid_types = ["hero", "feature", "ambiance"]
+    if image_type not in valid_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"無効な画像タイプです。有効な値: {', '.join(valid_types)}"
+        )
+    
+    # ファイル形式の検証
+    allowed_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無効なファイル形式です。有効な形式: {', '.join(allowed_extensions)}"
+        )
+    
+    # LP画像ディレクトリ
+    lp_dir = os.path.join("static", "lp", str(hotel_id))
+    os.makedirs(lp_dir, exist_ok=True)
+    
+    # 現在のLP画像URLを取得（新しい辞書を作成してSQLAlchemyが変更を検出できるようにする）
+    lp_image_urls = dict(asset.lp_image_urls) if asset.lp_image_urls else {}
+    old_image_path = lp_image_urls.get(image_type, "")
+    old_filename = old_image_path.split("/")[-1] if old_image_path else None
+    
+    # 新しいファイル名を生成
+    new_filename = f"{image_type}_{uuid.uuid4().hex[:8]}{file_ext}"
+    new_filepath = os.path.join(lp_dir, new_filename)
+    
+    # ファイルを保存
+    content = await file.read()
+    with open(new_filepath, "wb") as f:
+        f.write(content)
+    
+    # 古いファイルを削除
+    if old_filename:
+        old_filepath = os.path.join(lp_dir, old_filename)
+        if os.path.exists(old_filepath):
+            try:
+                os.remove(old_filepath)
+            except Exception as e:
+                print(f"古い画像の削除に失敗: {e}")
+    
+    # 新しい画像URLを設定
+    new_image_url = f"/static/lp/{hotel_id}/{new_filename}"
+    lp_image_urls[image_type] = new_image_url
+    asset.lp_image_urls = lp_image_urls
+    
+    # 画像パス置換用のヘルパー関数
+    def replace_image_path(content: str, old_name: str | None, new_name: str) -> str:
+        """HTMLコンテンツ内の画像パスを置換"""
+        if old_name:
+            # 古いファイル名を新しいファイル名に置換（相対パス形式）
+            content = content.replace(f"./{old_name}", f"./{new_name}")
+            content = content.replace(f'"{old_name}"', f'"./{new_name}"')
+            content = content.replace(f"'{old_name}'", f"'./{new_name}'")
+            # 絶対パス形式も対応
+            content = content.replace(f"/static/lp/{hotel_id}/{old_name}", f"./{new_name}")
+        
+        # 画像タイプに基づいた正規表現パターンでも置換（より確実な置換）
+        # hero_XXXXXXXX.jpg, feature_XXXXXXXX.png などのパターンに対応
+        pattern = rf"\./{image_type}_[a-f0-9]+\.(jpg|jpeg|png|webp)"
+        content = re.sub(pattern, f"./{new_name}", content)
+        
+        # url('...') パターンにも対応
+        pattern_url = rf"url\(['\"]?\./{image_type}_[a-f0-9]+\.(jpg|jpeg|png|webp)['\"]?\)"
+        content = re.sub(pattern_url, f"url('./{new_name}')", content)
+        
+        return content
+    
+    # DB内のlp_source_codeを更新
+    if asset.lp_source_code:
+        try:
+            updated_source = replace_image_path(asset.lp_source_code, old_filename, new_filename)
+            asset.lp_source_code = updated_source
+            print(f"lp_source_code更新: {image_type}画像パスを {new_filename} に変更")
+        except Exception as e:
+            print(f"lp_source_codeの更新に失敗: {e}")
+    
+    # 辞書型フィールドの変更をSQLAlchemyに明示的に通知
+    # これがないと、辞書の内部変更が検出されずDBに保存されない
+    flag_modified(asset, "lp_image_urls")
+    
+    # HTMLファイル内の画像パスを更新
+    if asset.lp_preview_url:
+        html_filepath = os.path.join("static", "lp", str(hotel_id), f"lp_{asset_id}.html")
+        if os.path.exists(html_filepath):
+            try:
+                with open(html_filepath, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+                
+                html_content = replace_image_path(html_content, old_filename, new_filename)
+                
+                with open(html_filepath, "w", encoding="utf-8") as f:
+                    f.write(html_content)
+                
+                print(f"HTMLファイル更新: {html_filepath}")
+                    
+            except Exception as e:
+                print(f"HTMLファイルの更新に失敗: {e}")
+        else:
+            print(f"HTMLファイルが見つかりません: {html_filepath}")
+    
+    # 更新日時を更新
+    from datetime import datetime
+    asset.updated_at = datetime.utcnow()
+    
+    session.commit()
+    session.refresh(asset)
+    
+    print(f"DB更新完了: asset_id={asset_id}, lp_image_urls={asset.lp_image_urls}")
+    
+    return {
+        "message": f"{image_type}画像をアップロードしました",
+        "image_type": image_type,
+        "new_url": new_image_url,
+        "filename": new_filename,
+        "lp_image_urls": asset.lp_image_urls  # refreshした後の値を返す
+    }
 
 

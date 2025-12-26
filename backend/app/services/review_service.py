@@ -224,3 +224,4 @@ def get_review_service() -> ReviewService:
     """ReviewServiceのインスタンスを取得"""
     return ReviewService()
 
+

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send, MessageSquare, BookOpen, ChevronDown, ChevronUp, Sparkles, ListChecks } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, MarketingPlan, AnalysisSession } from "@/lib/api";
+import { marketingApi, MarketingPlan, AnalysisSession, OperationManual, OperationChatMessage, ManualContent } from "@/lib/api";
 
 // セクションの型
 type EditableSection = "concept" | "target_audience" | "price_range" | "benefits";
@@ -68,6 +68,16 @@ export default function PlannerPage() {
   const [editingSection, setEditingSection] = useState<EditableSection | null>(null);
   const [editInstruction, setEditInstruction] = useState("");
   const [editingLoading, setEditingLoading] = useState(false);
+  
+  // オペレーション関連のstate
+  const [operationManual, setOperationManual] = useState<OperationManual | null>(null);
+  const [chatMessages, setChatMessages] = useState<OperationChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showOperationChat, setShowOperationChat] = useState(false);
+  const [generatingManual, setGeneratingManual] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -156,6 +166,93 @@ export default function PlannerPage() {
       setEditingLoading(false);
     }
   };
+
+  // オペレーションチャットを開始
+  const handleStartOperationChat = async () => {
+    if (!selectedPlan) return;
+    
+    setChatLoading(true);
+    try {
+      const manual = await marketingApi.startOperationChat(hotelId, selectedPlan.id);
+      setOperationManual(manual);
+      setChatMessages(manual.chat_messages || []);
+      setShowOperationChat(true);
+      setShowManual(manual.status === "completed");
+    } catch (error) {
+      console.error("Failed to start operation chat:", error);
+      alert("オペレーションチャットの開始に失敗しました。");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // チャットメッセージを送信
+  const handleSendMessage = async () => {
+    if (!operationManual || !chatInput.trim() || chatLoading) return;
+    
+    const userMessage = chatInput.trim();
+    setChatInput("");
+    setChatLoading(true);
+    
+    // ユーザーメッセージを即時表示
+    const tempUserMsg: OperationChatMessage = {
+      id: Date.now(),
+      operation_manual_id: operationManual.id,
+      role: "user",
+      content: userMessage,
+      msg_metadata: {},
+      created_at: new Date().toISOString(),
+    };
+    setChatMessages((prev) => [...prev, tempUserMsg]);
+    
+    try {
+      const aiResponse = await marketingApi.sendOperationMessage(
+        hotelId,
+        operationManual.id,
+        userMessage
+      );
+      setChatMessages((prev) => [...prev.slice(0, -1), { ...tempUserMsg }, aiResponse]);
+      
+      // スクロール
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setChatMessages((prev) => prev.slice(0, -1));
+      setChatInput(userMessage);
+      alert("メッセージの送信に失敗しました。");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // マニュアルを生成
+  const handleGenerateManual = async () => {
+    if (!operationManual) return;
+    
+    setGeneratingManual(true);
+    try {
+      const updated = await marketingApi.generateOperationManual(hotelId, operationManual.id);
+      setOperationManual(updated);
+      setShowManual(true);
+    } catch (error) {
+      console.error("Failed to generate manual:", error);
+      alert("マニュアルの生成に失敗しました。");
+    } finally {
+      setGeneratingManual(false);
+    }
+  };
+
+  // オペレーションチャットを閉じる
+  const handleCloseOperationChat = () => {
+    setShowOperationChat(false);
+  };
+
+  // 最後のAIメッセージがマニュアル生成準備完了かチェック
+  const isReadyForManual = chatMessages.length > 0 && 
+    chatMessages[chatMessages.length - 1].role === "assistant" &&
+    chatMessages[chatMessages.length - 1].msg_metadata?.is_ready_for_manual === true;
 
   const hasAnalysisData = session?.session_id !== null && (
     (session?.csv_statistics && Object.keys(session.csv_statistics).length > 0) ||
@@ -752,6 +849,271 @@ export default function PlannerPage() {
                         );
                       })()}
                     </div>
+                  </div>
+                )}
+
+                {/* オペレーションセクション（承認済みプランのみ） */}
+                {selectedPlan.status === "approved" && (
+                  <div className="mt-8 pt-6 border-t border-white/10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <ListChecks className="w-5 h-5 text-emerald-400" />
+                        <h4 className="text-lg font-semibold text-white">オペレーションマニュアル</h4>
+                      </div>
+                      {!showOperationChat && (
+                        <button
+                          onClick={handleStartOperationChat}
+                          disabled={chatLoading}
+                          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all font-medium disabled:opacity-50"
+                        >
+                          {chatLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <MessageSquare className="w-4 h-4" />
+                          )}
+                          {operationManual ? "チャットを再開" : "オペレーションを作成"}
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-slate-400 text-sm mb-4">
+                      このプランを実行するための具体的なマニュアルを、AIとの対話を通じて作成できます。
+                      施設の状況に合わせた実践的な手順書を生成します。
+                    </p>
+
+                    {/* チャットUI */}
+                    {showOperationChat && (
+                      <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                        {/* チャットヘッダー */}
+                        <div className="flex items-center justify-between p-4 bg-white/5 border-b border-white/10">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="w-5 h-5 text-emerald-400" />
+                            <span className="font-medium text-white">オペレーション作成チャット</span>
+                            {operationManual?.status === "completed" && (
+                              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">
+                                完了
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {operationManual?.status === "completed" && (
+                              <button
+                                onClick={() => setShowManual(!showManual)}
+                                className="flex items-center gap-1 px-3 py-1.5 text-sm text-emerald-400 hover:bg-white/10 rounded-lg transition-colors"
+                              >
+                                <BookOpen className="w-4 h-4" />
+                                {showManual ? "チャットを表示" : "マニュアルを表示"}
+                              </button>
+                            )}
+                            <button
+                              onClick={handleCloseOperationChat}
+                              className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                            >
+                              <ChevronUp className="w-5 h-5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* マニュアル表示 */}
+                        {showManual && operationManual?.manual_content && Object.keys(operationManual.manual_content).length > 0 ? (
+                          <div className="p-6 max-h-[600px] overflow-y-auto">
+                            {(() => {
+                              const manual = operationManual.manual_content as ManualContent;
+                              return (
+                                <div className="space-y-6">
+                                  {/* タイトルと概要 */}
+                                  <div>
+                                    <h3 className="text-xl font-bold text-white mb-2">{manual.title}</h3>
+                                    <p className="text-slate-300">{manual.overview}</p>
+                                  </div>
+
+                                  {/* タイムラインと予算 */}
+                                  {(manual.timeline || manual.budget_estimate) && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                      {manual.timeline && (
+                                        <div className="p-3 bg-white/5 rounded-lg">
+                                          <p className="text-slate-400 text-xs mb-1">タイムライン</p>
+                                          <p className="text-white text-sm">{manual.timeline}</p>
+                                        </div>
+                                      )}
+                                      {manual.budget_estimate && (
+                                        <div className="p-3 bg-white/5 rounded-lg">
+                                          <p className="text-slate-400 text-xs mb-1">概算予算</p>
+                                          <p className="text-white text-sm">{manual.budget_estimate}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* フェーズ */}
+                                  {manual.phases?.map((phase, phaseIdx) => (
+                                    <div key={phaseIdx} className="border border-white/10 rounded-lg overflow-hidden">
+                                      <div className="p-4 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border-b border-white/10">
+                                        <div className="flex items-center justify-between">
+                                          <h4 className="font-semibold text-white">{phase.name}</h4>
+                                          {phase.duration && (
+                                            <span className="text-xs text-slate-400">
+                                              期間: {phase.duration}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {phase.description && (
+                                          <p className="text-slate-300 text-sm mt-1">{phase.description}</p>
+                                        )}
+                                      </div>
+                                      <div className="p-4 space-y-3">
+                                        {phase.tasks?.map((task, taskIdx) => (
+                                          <div key={taskIdx} className="p-3 bg-white/5 rounded-lg">
+                                            <div className="flex items-start gap-3">
+                                              <div className="flex items-center justify-center w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-bold flex-shrink-0">
+                                                {taskIdx + 1}
+                                              </div>
+                                              <div className="flex-1">
+                                                <h5 className="font-medium text-white mb-1">{task.title}</h5>
+                                                <p className="text-slate-300 text-sm whitespace-pre-wrap">{task.description}</p>
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                  {task.estimated_time && (
+                                                    <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-xs rounded-full">
+                                                      ⏱ {task.estimated_time}
+                                                    </span>
+                                                  )}
+                                                  {task.responsible && (
+                                                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full">
+                                                      👤 {task.responsible}
+                                                    </span>
+                                                  )}
+                                                  {task.tools?.map((tool, toolIdx) => (
+                                                    <span key={toolIdx} className="px-2 py-0.5 bg-slate-500/20 text-slate-300 text-xs rounded-full">
+                                                      🔧 {tool}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                                {task.tips && (
+                                                  <div className="mt-2 p-2 bg-yellow-500/10 rounded text-yellow-200 text-xs">
+                                                    💡 {task.tips}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  {/* KPI */}
+                                  {manual.success_metrics && manual.success_metrics.length > 0 && (
+                                    <div className="p-4 bg-white/5 rounded-lg">
+                                      <h4 className="font-semibold text-white mb-2">成功指標（KPI）</h4>
+                                      <ul className="space-y-1">
+                                        {manual.success_metrics.map((metric, idx) => (
+                                          <li key={idx} className="flex items-center gap-2 text-slate-300 text-sm">
+                                            <CheckCircle className="w-4 h-4 text-emerald-400" />
+                                            {metric}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+
+                                  {/* 備考 */}
+                                  {manual.notes && (
+                                    <div className="p-4 bg-white/5 rounded-lg">
+                                      <h4 className="font-semibold text-white mb-2">備考・注意点</h4>
+                                      <p className="text-slate-300 text-sm whitespace-pre-wrap">{manual.notes}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          <>
+                            {/* チャットメッセージ一覧 */}
+                            <div className="h-80 overflow-y-auto p-4 space-y-4">
+                              {chatMessages.map((msg) => (
+                                <div
+                                  key={msg.id}
+                                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                                >
+                                  <div
+                                    className={`max-w-[80%] p-3 rounded-lg ${
+                                      msg.role === "user"
+                                        ? "bg-gradient-to-r from-purple-500/30 to-cyan-500/30 text-white"
+                                        : "bg-white/10 text-slate-200"
+                                    }`}
+                                  >
+                                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                                  </div>
+                                </div>
+                              ))}
+                              {chatLoading && (
+                                <div className="flex justify-start">
+                                  <div className="bg-white/10 p-3 rounded-lg">
+                                    <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                                  </div>
+                                </div>
+                              )}
+                              <div ref={chatEndRef} />
+                            </div>
+
+                            {/* マニュアル生成ボタン */}
+                            {(isReadyForManual || chatMessages.length >= 4) && operationManual?.status !== "completed" && (
+                              <div className="px-4 py-3 bg-emerald-500/10 border-t border-emerald-500/20">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-emerald-300 text-sm">
+                                    {isReadyForManual 
+                                      ? "✨ マニュアルを生成する準備ができました！"
+                                      : "💡 ヒント: まだ質問に答えることで、より良いマニュアルが生成されます"}
+                                  </p>
+                                  <button
+                                    onClick={handleGenerateManual}
+                                    disabled={generatingManual}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all font-medium disabled:opacity-50"
+                                  >
+                                    {generatingManual ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        生成中...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="w-4 h-4" />
+                                        マニュアルを生成
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 入力エリア */}
+                            {operationManual?.status !== "completed" && (
+                              <div className="p-4 border-t border-white/10">
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                                    placeholder="メッセージを入力..."
+                                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                                    disabled={chatLoading}
+                                  />
+                                  <button
+                                    onClick={handleSendMessage}
+                                    disabled={chatLoading || !chatInput.trim()}
+                                    className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <Send className="w-5 h-5" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

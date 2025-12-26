@@ -119,3 +119,4 @@ def verify_token(token: str) -> Optional[TokenPayload]:
     except JWTError:
         return None
 
+

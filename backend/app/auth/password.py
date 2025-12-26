@@ -67,3 +67,4 @@ def validate_password_strength(password: str) -> tuple[bool, list[str]]:
     
     return (len(errors) == 0, errors)
 
+

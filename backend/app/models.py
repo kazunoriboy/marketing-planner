@@ -13,6 +13,12 @@ class PlanStatus(str, Enum):
     approved = "approved"
 
 
+class OperationManualStatus(str, Enum):
+    """オペレーションマニュアルのステータス"""
+    in_progress = "in_progress"  # チャット進行中
+    completed = "completed"       # マニュアル生成完了
+
+
 class FacilityAdminHotelRole(str, Enum):
     """施設管理者の施設に対する権限"""
     owner = "owner"      # オーナー（全権限）
@@ -163,6 +169,7 @@ class MarketingPlan(SQLModel, table=True):
     # リレーション
     analysis_session: AnalysisSession = Relationship(back_populates="marketing_plans")
     creative_assets: list["CreativeAsset"] = Relationship(back_populates="marketing_plan")
+    operation_manual: Optional["OperationManual"] = Relationship(back_populates="marketing_plan")
 
 
 class CreativeAsset(SQLModel, table=True):
@@ -193,5 +200,72 @@ class CreativeAsset(SQLModel, table=True):
     
     # リレーション
     marketing_plan: MarketingPlan = Relationship(back_populates="creative_assets")
+
+
+class OperationManual(SQLModel, table=True):
+    """オペレーションマニュアルテーブル"""
+    __tablename__ = "operation_manuals"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    marketing_plan_id: int = Field(foreign_key="marketing_plans.id", index=True)
+    
+    # ステータス
+    status: OperationManualStatus = Field(default=OperationManualStatus.in_progress)
+    
+    # マニュアル内容（JSON形式）
+    # {
+    #   "title": "マニュアルタイトル",
+    #   "overview": "概要",
+    #   "phases": [
+    #     {
+    #       "name": "準備フェーズ",
+    #       "tasks": [
+    #         {"title": "タスク名", "description": "説明", "estimated_time": "1時間", "responsible": "担当者"},
+    #         ...
+    #       ]
+    #     },
+    #     ...
+    #   ],
+    #   "timeline": "タイムライン",
+    #   "notes": "備考"
+    # }
+    manual_content: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
+    # チャットから抽出した施設の状況
+    # {
+    #   "current_tools": ["じゃらん", "Googleビジネスプロフィール"],
+    #   "staff_situation": "担当者1名、マーケティング経験なし",
+    #   "budget": "月5万円程度",
+    #   "challenges": ["SNS運用が苦手", "写真撮影のスキルがない"],
+    #   ...
+    # }
+    facility_context: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    marketing_plan: MarketingPlan = Relationship(back_populates="operation_manual")
+    chat_messages: list["OperationChatMessage"] = Relationship(back_populates="operation_manual")
+
+
+class OperationChatMessage(SQLModel, table=True):
+    """オペレーションチャットメッセージテーブル"""
+    __tablename__ = "operation_chat_messages"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    operation_manual_id: int = Field(foreign_key="operation_manuals.id", index=True)
+    
+    # メッセージ
+    role: str  # "user" or "assistant"
+    content: str
+    
+    # メタデータ（AIの思考プロセスなど）
+    msg_metadata: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    operation_manual: OperationManual = Relationship(back_populates="chat_messages")
 
 

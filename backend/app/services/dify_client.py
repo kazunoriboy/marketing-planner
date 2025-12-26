@@ -103,3 +103,4 @@ def get_dify_client() -> DifyClient:
     """Difyクライアントのインスタンスを取得"""
     return DifyClient()
 
+

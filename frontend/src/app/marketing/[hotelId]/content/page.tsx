@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2 } from "lucide-react";
+import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse } from "@/lib/api";
+import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse } from "@/lib/api";
 import Link from "next/link";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -34,6 +34,30 @@ export default function ContentPage() {
   const [cvUrlInput, setCvUrlInput] = useState("");
   const [savingCvUrl, setSavingCvUrl] = useState(false);
   const [cvUrlError, setCvUrlError] = useState("");
+  
+  // LP画像アップロード関連のstate
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  
+  // 画像アップロード確認モーダル関連のstate
+  const [pendingImageUpload, setPendingImageUpload] = useState<{
+    imageType: "hero" | "feature" | "ambiance";
+    file: File;
+    previewUrl: string;
+  } | null>(null);
+  
+  // 画像モーダル関連のstate
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
+  const [modalImageTitle, setModalImageTitle] = useState<string>("");
+  
+  // SNS投稿ジェネレーター関連のstate
+  const [snsPlatform, setSnsPlatform] = useState<string>("");
+  const [snsPostType, setSnsPostType] = useState<string>("");
+  const [snsDescription, setSnsDescription] = useState<string>("");
+  const [generatingSns, setGeneratingSns] = useState(false);
+  const [snsPost, setSnsPost] = useState<SNSPostResponse | null>(null);
+  const [snsError, setSnsError] = useState<string>("");
 
   useEffect(() => {
     async function loadData() {
@@ -55,6 +79,20 @@ export default function ContentPage() {
     }
     loadData();
   }, [hotelId]);
+
+  // ESCキーで画像モーダルを閉じる
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showImageModal) {
+        setShowImageModal(false);
+      }
+    };
+    
+    if (showImageModal) {
+      document.addEventListener("keydown", handleKeyDown);
+      return () => document.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [showImageModal]);
 
   useEffect(() => {
     async function loadAssets() {
@@ -133,6 +171,65 @@ export default function ContentPage() {
       setCvUrlError("CV URLの保存に失敗しました");
     } finally {
       setSavingCvUrl(false);
+    }
+  };
+
+  // LP画像をアップロード
+  const handleImageUpload = async (
+    assetId: number,
+    imageType: "hero" | "feature" | "ambiance",
+    file: File
+  ) => {
+    setUploadingImage(imageType);
+    try {
+      const result = await marketingApi.uploadLpImage(hotelId, assetId, imageType, file);
+      
+      // アセットの画像URLを更新
+      setAssets(prevAssets => 
+        prevAssets.map(asset => 
+          asset.id === assetId 
+            ? { ...asset, lp_image_urls: result.lp_image_urls }
+            : asset
+        )
+      );
+    } catch (error) {
+      console.error("Image upload failed:", error);
+      alert("画像のアップロードに失敗しました");
+    } finally {
+      setUploadingImage(null);
+    }
+  };
+
+  // 画像アップロードを確定する
+  const handleConfirmImageUpload = async () => {
+    if (!pendingImageUpload || !currentAsset) return;
+    
+    const { imageType, file, previewUrl } = pendingImageUpload;
+    
+    // プレビューURLを解放
+    URL.revokeObjectURL(previewUrl);
+    
+    // モーダルを閉じる
+    setPendingImageUpload(null);
+    
+    // アップロードを実行
+    await handleImageUpload(currentAsset.id, imageType, file);
+  };
+
+  // 画像アップロードをキャンセルする
+  const handleCancelImageUpload = () => {
+    if (pendingImageUpload) {
+      // プレビューURLを解放
+      URL.revokeObjectURL(pendingImageUpload.previewUrl);
+      setPendingImageUpload(null);
+    }
+  };
+
+  // ファイル選択ダイアログを開く
+  const triggerFileInput = (imageType: string) => {
+    const input = fileInputRefs.current[imageType];
+    if (input) {
+      input.click();
     }
   };
 
@@ -429,30 +526,99 @@ export default function ContentPage() {
                   {/* LP用画像セクション */}
                   {currentAsset.lp_image_urls && Object.keys(currentAsset.lp_image_urls).length > 0 && (
                     <div className="mb-4">
-                      <p className="text-sm text-slate-400 mb-3">LP用画像</p>
+                      <p className="text-sm text-slate-400 mb-3">LP用画像（クリックで差し替え可能）</p>
                       <div className="grid grid-cols-3 gap-3">
                         {Object.entries(currentAsset.lp_image_urls).map(([key, value]) => {
                           const imageValue = value as Record<string, unknown> | string | null;
                           const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
+                          const isValidType = ["hero", "feature", "ambiance"].includes(key);
+                          const isUploading = uploadingImage === key;
                           
                           return (
-                            <div key={key} className="relative">
-                              <p className="text-xs text-slate-500 mb-1">{key}</p>
+                            <div key={key} className="relative group">
+                              <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                                {key}
+                                {isValidType && (
+                                  <span className="text-slate-600">（差し替え可）</span>
+                                )}
+                              </p>
+                              
+                              {/* 隠しファイル入力 */}
+                              {isValidType && (
+                                <input
+                                  type="file"
+                                  ref={(el) => { fileInputRefs.current[key] = el; }}
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      // ファイルを選択したらプレビューを表示（即座にアップロードしない）
+                                      const previewUrl = URL.createObjectURL(file);
+                                      setPendingImageUpload({
+                                        imageType: key as "hero" | "feature" | "ambiance",
+                                        file,
+                                        previewUrl,
+                                      });
+                                    }
+                                    e.target.value = "";
+                                  }}
+                                />
+                              )}
+                              
                               {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
-                                <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-800">
+                                <div 
+                                  className={`relative aspect-video rounded-lg overflow-hidden bg-slate-800 ${isValidType && !isUploading ? 'cursor-pointer' : ''}`}
+                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                >
                                   <img
                                     src={`${API_BASE_URL}${imageValue}`}
                                     alt={key}
                                     className="w-full h-full object-cover"
                                   />
+                                  {/* アップロードオーバーレイ */}
+                                  {isValidType && !isUploading && (
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <div className="text-center">
+                                        <Upload className="w-6 h-6 text-white mx-auto mb-1" />
+                                        <span className="text-white text-xs">画像を差し替え</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* アップロード中 */}
+                                  {isUploading && (
+                                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+                                    </div>
+                                  )}
                                 </div>
                               ) : isError ? (
-                                <div className="aspect-video rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center">
-                                  <span className="text-red-400 text-xs">生成失敗</span>
+                                <div 
+                                  className={`aspect-video rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-red-500/20' : ''}`}
+                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                >
+                                  {isUploading ? (
+                                    <Loader2 className="w-6 h-6 text-red-400 animate-spin" />
+                                  ) : (
+                                    <div className="text-center">
+                                      <Upload className="w-5 h-5 text-red-400 mx-auto mb-1" />
+                                      <span className="text-red-400 text-xs">画像をアップロード</span>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
-                                <div className="aspect-video rounded-lg bg-slate-700 flex items-center justify-center">
-                                  <span className="text-slate-500 text-xs">未生成</span>
+                                <div 
+                                  className={`aspect-video rounded-lg bg-slate-700 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-slate-600' : ''}`}
+                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                >
+                                  {isUploading ? (
+                                    <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+                                  ) : (
+                                    <div className="text-center">
+                                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                                      <span className="text-slate-500 text-xs">画像をアップロード</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -472,12 +638,12 @@ export default function ContentPage() {
 
               {/* 広告コピー */}
               {currentAsset.ad_copy && Object.keys(currentAsset.ad_copy).length > 0 && (
-                <div className="glass-card p-6">
+                <div className="glass-card p-6 lg:col-span-2">
                   <div className="flex items-center gap-3 mb-4">
                     <MessageSquare className="w-6 h-6 text-green-400" />
                     <h4 className="text-xl font-bold text-white">広告コピー</h4>
                   </div>
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {Object.entries(currentAsset.ad_copy).map(([key, value]) => (
                       <div key={key} className="p-4 bg-white/5 rounded-lg">
                         <p className="text-sm text-slate-400 mb-2 font-medium">{key}</p>
@@ -509,7 +675,7 @@ export default function ContentPage() {
                   <div className="flex items-center gap-3 mb-4">
                     <Image className="w-6 h-6 text-orange-400" />
                     <h4 className="text-xl font-bold text-white">広告用画像</h4>
-                    <span className="text-xs text-slate-500">（ディスプレイ広告・SNS広告用）</span>
+                    <span className="text-xs text-slate-500">（クリックで拡大表示）</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {Object.entries(currentAsset.ad_image_urls).map(([key, value]) => {
@@ -521,13 +687,25 @@ export default function ContentPage() {
                         <div key={key} className="p-4 bg-white/5 rounded-lg">
                           <p className="text-sm text-slate-400 mb-3 font-medium">{key}</p>
                           {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
-                            // 画像URLの場合は実際の画像を表示
-                            <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-800">
+                            // 画像URLの場合は実際の画像を表示（クリックで拡大）
+                            <div 
+                              className="relative aspect-video rounded-lg overflow-hidden bg-slate-800 cursor-pointer group"
+                              onClick={() => {
+                                setModalImageUrl(`${API_BASE_URL}${imageValue}`);
+                                setModalImageTitle(key);
+                                setShowImageModal(true);
+                              }}
+                            >
                               <img
-                                src={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${imageValue}`}
+                                src={`${API_BASE_URL}${imageValue}`}
                                 alt={key}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
                               />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <div className="bg-white/20 backdrop-blur-sm rounded-full p-2">
+                                  <Eye className="w-5 h-5 text-white" />
+                                </div>
+                              </div>
                             </div>
                           ) : isQuotaError ? (
                             // APIクォータエラーの場合
@@ -559,7 +737,7 @@ export default function ContentPage() {
             </div>
           )}
 
-          {/* SNS投稿ジェネレーター（モック） */}
+          {/* SNS投稿ジェネレーター */}
           <div className="glass-card p-8 mt-8">
             <div className="flex items-center gap-3 mb-6">
               <Instagram className="w-6 h-6 text-pink-400" />
@@ -568,33 +746,153 @@ export default function ContentPage() {
 
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <select className="bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500">
-                  <option>プラットフォームを選択</option>
-                  <option>Instagram</option>
-                  <option>Facebook</option>
-                  <option>Twitter</option>
-                </select>
-                <select className="bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500">
-                  <option>投稿タイプを選択</option>
-                  <option>温泉紹介</option>
-                  <option>料理紹介</option>
-                  <option>イベント告知</option>
-                </select>
+                <div>
+                  <label className="block text-slate-300 text-sm mb-2">プラットフォーム</label>
+                  <select 
+                    value={snsPlatform}
+                    onChange={(e) => setSnsPlatform(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">プラットフォームを選択</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="twitter">Twitter</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 text-sm mb-2">投稿タイプ</label>
+                  <select 
+                    value={snsPostType}
+                    onChange={(e) => setSnsPostType(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">投稿タイプを選択</option>
+                    <option value="温泉紹介">温泉紹介</option>
+                    <option value="料理紹介">料理紹介</option>
+                    <option value="イベント告知">イベント告知</option>
+                    <option value="客室紹介">客室紹介</option>
+                    <option value="季節の情報">季節の情報</option>
+                    <option value="その他">その他</option>
+                  </select>
+                </div>
               </div>
-
-              <button className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white py-4 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold">
-                SNS投稿を作成
-              </button>
-
-              <div className="bg-white/5 border border-white/10 rounded-lg p-6">
-                <h4 className="text-lg font-semibold text-white mb-3">生成された投稿</h4>
-                <p className="text-slate-300 leading-relaxed">
-                  🌸 春の訪れとともに、{hotel.name}も新緑の季節を迎えました。
-                  <br />
-                  <br />
-                  #温泉 #旅館 #春 #リフレッシュ #癒し
+              
+              {/* 投稿説明欄 */}
+              <div>
+                <label className="block text-slate-300 text-sm mb-2">
+                  どんな投稿を作りたいですか？（任意）
+                </label>
+                <textarea
+                  value={snsDescription}
+                  onChange={(e) => setSnsDescription(e.target.value)}
+                  placeholder="例: 新しく始めた岩盤浴サービスを紹介したい / 秋の紅葉シーズンに合わせた投稿 / 記念日プランの告知など"
+                  className="w-full h-24 bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 resize-none"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  具体的な内容を入力すると、より適切な投稿が生成されます
                 </p>
               </div>
+
+              {snsError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                  {snsError}
+                </div>
+              )}
+
+              <button 
+                onClick={async () => {
+                  if (!snsPlatform || !snsPostType) {
+                    setSnsError("プラットフォームと投稿タイプを選択してください");
+                    return;
+                  }
+                  setSnsError("");
+                  setGeneratingSns(true);
+                  try {
+                    const result = await marketingApi.generateSNSPost(hotelId, {
+                      platform: snsPlatform,
+                      post_type: snsPostType,
+                      description: snsDescription,
+                    });
+                    setSnsPost(result);
+                  } catch (error) {
+                    console.error("SNS post generation failed:", error);
+                    setSnsError("SNS投稿の生成に失敗しました。もう一度お試しください。");
+                  } finally {
+                    setGeneratingSns(false);
+                  }
+                }}
+                disabled={generatingSns || !snsPlatform || !snsPostType}
+                className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white py-4 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {generatingSns ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-5 h-5" />
+                    SNS投稿を作成
+                  </>
+                )}
+              </button>
+
+              {/* 生成結果 */}
+              {snsPost && (
+                <div className="bg-white/5 border border-white/10 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-lg font-semibold text-white">生成された投稿</h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded">
+                        {snsPost.platform}
+                      </span>
+                      <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded">
+                        {snsPost.post_type}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-black/20 rounded-lg p-4 mb-4">
+                    <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">
+                      {snsPost.content}
+                    </p>
+                  </div>
+                  {snsPost.hashtags && snsPost.hashtags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {snsPost.hashtags.map((tag, index) => (
+                        <span key={index} className="text-cyan-400 text-sm">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                    <p className="text-xs text-slate-500">
+                      生成日時: {new Date(snsPost.generated_at).toLocaleString('ja-JP')}
+                    </p>
+                    <button
+                      onClick={() => {
+                        const fullText = `${snsPost.content}\n\n${snsPost.hashtags.join(' ')}`;
+                        navigator.clipboard.writeText(fullText);
+                        alert("投稿内容をコピーしました");
+                      }}
+                      className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                    >
+                      📋 コピー
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* 初期表示（投稿がない場合） */}
+              {!snsPost && !generatingSns && (
+                <div className="bg-white/5 border border-white/10 rounded-lg p-6 text-center">
+                  <MessageSquare className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-500">
+                    プラットフォームと投稿タイプを選択して、<br />
+                    AIにSNS投稿を生成してもらいましょう
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -713,6 +1011,121 @@ export default function ContentPage() {
                     <>
                       <CheckCircle className="w-4 h-4" />
                       保存して生成
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 画像プレビューモーダル - Portalで画面全体に表示 */}
+      {showImageModal && modalImageUrl && typeof document !== "undefined" && createPortal(
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+          onClick={() => setShowImageModal(false)}
+        >
+          {/* 閉じるボタン */}
+          <button
+            onClick={() => setShowImageModal(false)}
+            className="absolute top-4 right-4 p-3 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all z-10"
+          >
+            <X className="w-8 h-8" />
+          </button>
+          
+          {/* 画像タイトル */}
+          <div className="absolute top-4 left-4 px-4 py-2 bg-black/50 rounded-lg">
+            <p className="text-white font-medium">{modalImageTitle}</p>
+          </div>
+          
+          {/* 画像コンテナ */}
+          <div 
+            className="relative max-w-[95vw] max-h-[95vh] p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={modalImageUrl}
+              alt={modalImageTitle}
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            />
+          </div>
+          
+          {/* 操作説明 */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 rounded-lg">
+            <p className="text-white/70 text-sm">クリックまたはESCで閉じる</p>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 画像差し替え確認モーダル - Portalで画面全体に表示 */}
+      {pendingImageUpload && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-xl bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-5 py-4 bg-slate-800/50 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-lg font-semibold text-white">画像の差し替え確認</h3>
+              </div>
+              <button
+                onClick={handleCancelImageUpload}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* コンテンツ */}
+            <div className="p-5">
+              <div className="mb-4">
+                <p className="text-slate-300 text-sm mb-2">
+                  <span className="font-medium text-white">{pendingImageUpload.imageType}</span> 画像を差し替えます
+                </p>
+                <p className="text-slate-500 text-xs">
+                  確定ボタンを押すと、この画像がアップロードされ、LPの画像パスも自動的に更新されます。
+                </p>
+              </div>
+              
+              {/* 画像プレビュー */}
+              <div className="mb-5">
+                <p className="text-sm text-slate-400 mb-2">新しい画像のプレビュー</p>
+                <div className="relative aspect-video rounded-lg overflow-hidden bg-slate-800 border border-white/10">
+                  <img
+                    src={pendingImageUpload.previewUrl}
+                    alt="新しい画像のプレビュー"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  ファイル名: {pendingImageUpload.file.name}
+                </p>
+              </div>
+              
+              {/* ボタン */}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleCancelImageUpload}
+                  className="flex-1 px-4 py-3 bg-white/5 text-slate-300 rounded-lg hover:bg-white/10 transition-all font-medium"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleConfirmImageUpload}
+                  disabled={uploadingImage !== null}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      アップロード中...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      確定して差し替え
                     </>
                   )}
                 </button>

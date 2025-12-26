@@ -237,3 +237,4 @@ require_hotel_access = get_hotel_access_checker()  # 全ての権限を許可
 require_hotel_editor = get_hotel_access_checker(["owner", "editor"])  # 編集者以上
 require_hotel_owner = get_hotel_access_checker(["owner"])  # オーナーのみ
 
+

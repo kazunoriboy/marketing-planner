@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.core.database import create_db_and_tables
 from app.core.config import settings
-from app.api import analysis, planning, creative
+from app.api import analysis, planning, creative, operation
 from app.api import admin_auth, admin_users, facility_auth, facility_hotels
 
 
@@ -50,6 +50,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 app.include_router(analysis.router)
 app.include_router(planning.router)
 app.include_router(creative.router)
+app.include_router(operation.router)
 
 # APIルーターの登録（認証関連）
 app.include_router(admin_auth.router)

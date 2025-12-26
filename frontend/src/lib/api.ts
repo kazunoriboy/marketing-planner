@@ -520,6 +520,71 @@ export interface CreativeGenerationRequest {
   generate_ad_copy?: boolean;
 }
 
+// オペレーション関連の型
+export interface OperationChatMessage {
+  id: number;
+  operation_manual_id: number;
+  role: "user" | "assistant";
+  content: string;
+  msg_metadata: {
+    extracted_context?: Record<string, unknown>;
+    is_ready_for_manual?: boolean;
+  };
+  created_at: string;
+}
+
+export interface OperationManual {
+  id: number;
+  marketing_plan_id: number;
+  status: "in_progress" | "completed";
+  manual_content: ManualContent | Record<string, never>;
+  facility_context: Record<string, unknown>;
+  chat_messages?: OperationChatMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManualTask {
+  title: string;
+  description: string;
+  estimated_time?: string;
+  responsible?: string;
+  tools?: string[];
+  tips?: string;
+}
+
+export interface ManualPhase {
+  name: string;
+  description?: string;
+  duration?: string;
+  tasks: ManualTask[];
+}
+
+export interface ManualContent {
+  title: string;
+  overview: string;
+  phases: ManualPhase[];
+  timeline?: string;
+  budget_estimate?: string;
+  success_metrics?: string[];
+  notes?: string;
+}
+
+// SNS投稿生成関連の型
+export interface SNSPostGenerationRequest {
+  platform: string;
+  post_type: string;
+  description: string;
+}
+
+export interface SNSPostResponse {
+  platform: string;
+  post_type: string;
+  content: string;
+  hashtags: string[];
+  generated_at: string;
+}
+
 // 口コミ関連の型
 export interface ReviewUrlsUpdate {
   jalan?: string;
@@ -812,6 +877,168 @@ export const marketingApi = {
       `/api/creative/hotels/${hotelId}/assets/${assetId}/save-lp`,
       {
         method: "POST",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * SNS投稿を生成
+   */
+  async generateSNSPost(
+    hotelId: number,
+    request: SNSPostGenerationRequest
+  ): Promise<SNSPostResponse> {
+    return apiRequest<SNSPostResponse>(
+      `/api/creative/hotels/${hotelId}/generate-sns-post`,
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * LP用画像をアップロードして差し替え
+   */
+  async uploadLpImage(
+    hotelId: number,
+    assetId: number,
+    imageType: "hero" | "feature" | "ambiance",
+    file: File
+  ): Promise<{
+    message: string;
+    image_type: string;
+    new_url: string;
+    filename: string;
+    lp_image_urls: Record<string, string>;
+  }> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const makeRequest = async (token: string | null) => {
+      return fetch(
+        `${API_BASE_URL}/api/creative/hotels/${hotelId}/assets/${assetId}/lp-images/${imageType}`,
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+    };
+
+    let token = localStorage.getItem("facility_access_token");
+    let response = await makeRequest(token);
+
+    // 401エラーの場合はトークンリフレッシュを試みる
+    if (response.status === 401) {
+      const refreshToken = localStorage.getItem("facility_refresh_token");
+      if (refreshToken) {
+        try {
+          const refreshResponse = await fetch(`${API_BASE_URL}/facility/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+
+          if (refreshResponse.ok) {
+            const tokens: TokenResponse = await refreshResponse.json();
+            saveTokens("facility", tokens);
+            token = tokens.access_token;
+            response = await makeRequest(token);
+          } else {
+            clearTokens("facility");
+          }
+        } catch {
+          clearTokens("facility");
+        }
+      }
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        response.status,
+        errorData.detail || "画像アップロードに失敗しました"
+      );
+    }
+
+    return response.json();
+  },
+
+  // ============================================
+  // オペレーション API
+  // ============================================
+
+  /**
+   * オペレーションチャットを開始（または既存セッションを取得）
+   */
+  async startOperationChat(hotelId: number, planId: number): Promise<OperationManual> {
+    return apiRequest<OperationManual>(
+      `/api/operation/hotels/${hotelId}/plans/${planId}/start`,
+      {
+        method: "POST",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * チャットメッセージを送信
+   */
+  async sendOperationMessage(
+    hotelId: number,
+    manualId: number,
+    message: string
+  ): Promise<OperationChatMessage> {
+    return apiRequest<OperationChatMessage>(
+      `/api/operation/hotels/${hotelId}/manuals/${manualId}/chat`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * マニュアルを生成
+   */
+  async generateOperationManual(
+    hotelId: number,
+    manualId: number,
+    additionalInstructions?: string
+  ): Promise<OperationManual> {
+    return apiRequest<OperationManual>(
+      `/api/operation/hotels/${hotelId}/manuals/${manualId}/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ additional_instructions: additionalInstructions }),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * オペレーションマニュアルを取得
+   */
+  async getOperationManual(hotelId: number, planId: number): Promise<OperationManual> {
+    return apiRequest<OperationManual>(
+      `/api/operation/hotels/${hotelId}/plans/${planId}/manual`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * オペレーションマニュアルを削除
+   */
+  async deleteOperationManual(hotelId: number, manualId: number): Promise<void> {
+    await apiRequest<void>(
+      `/api/operation/hotels/${hotelId}/manuals/${manualId}`,
+      {
+        method: "DELETE",
       },
       "facility"
     );

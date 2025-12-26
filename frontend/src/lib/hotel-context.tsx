@@ -36,3 +36,4 @@ export function useHotelId(): number {
   return hotelId;
 }
 
+

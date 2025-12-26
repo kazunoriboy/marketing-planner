@@ -41,3 +41,4 @@ if __name__ == "__main__":
     migrate()
     print("✅ マイグレーション完了")
 
+
