@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send, MessageSquare, BookOpen, ChevronDown, ChevronUp, Sparkles, ListChecks } from "lucide-react";
+import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send, MessageSquare, BookOpen, ChevronUp, Sparkles, ListChecks } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, MarketingPlan, AnalysisSession, OperationManual, OperationChatMessage, ManualContent } from "@/lib/api";
 
 // セクションの型
 type EditableSection = "concept" | "target_audience" | "price_range" | "benefits";
-
-// セクションラベル
-const SECTION_LABELS: Record<EditableSection, string> = {
-  concept: "コンセプト",
-  target_audience: "ターゲット顧客",
-  price_range: "価格帯",
-  benefits: "特典・特徴",
-};
 
 // 型定義
 interface TargetAudience {

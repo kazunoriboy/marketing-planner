@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, AnalysisSession, CSVAnalysisResponse, ReviewUrlsUpdate } from "@/lib/api";
+import { marketingApi, AnalysisSession, ReviewUrlsUpdate } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -620,7 +620,7 @@ export default function PersonaPage() {
               <div className="flex items-center gap-3 mb-6">
                 <MessageSquare className="w-6 h-6 text-blue-400" />
                 <h3 className="text-2xl font-bold text-white">口コミ分析結果</h3>
-                {(session.reviews_summary as Record<string, unknown>).analyzed_at && (
+                {Boolean((session.reviews_summary as Record<string, unknown>).analyzed_at) && (
                   <span className="text-xs text-slate-500 ml-auto">
                     分析日時: {new Date((session.reviews_summary as Record<string, unknown>).analyzed_at as string).toLocaleString("ja-JP")}
                   </span>
@@ -628,7 +628,7 @@ export default function PersonaPage() {
               </div>
 
               {/* 収集件数表示 */}
-              {(session.reviews_summary as Record<string, unknown>).total_reviews !== undefined && (
+              {Boolean((session.reviews_summary as Record<string, unknown>).total_reviews !== undefined) && (
                 <div className="mb-6 p-4 bg-blue-500/10 rounded-lg border border-blue-500/20">
                   <p className="text-sm text-blue-300">
                     収集した口コミ数: <span className="font-bold">{(session.reviews_summary as Record<string, unknown>).total_reviews as number}件</span>
@@ -637,7 +637,7 @@ export default function PersonaPage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {(session.reviews_summary as Record<string, unknown>).positive_themes && (
+                {Boolean((session.reviews_summary as Record<string, unknown>).positive_themes) && (
                   <div>
                     <p className="text-sm text-green-400 mb-2">好評ポイント</p>
                     <ul className="space-y-1">
@@ -647,7 +647,7 @@ export default function PersonaPage() {
                     </ul>
                   </div>
                 )}
-                {(session.reviews_summary as Record<string, unknown>).negative_themes && (
+                {Boolean((session.reviews_summary as Record<string, unknown>).negative_themes) && (
                   <div>
                     <p className="text-sm text-red-400 mb-2">不評ポイント</p>
                     <ul className="space-y-1">
@@ -657,7 +657,7 @@ export default function PersonaPage() {
                     </ul>
                   </div>
                 )}
-                {(session.reviews_summary as Record<string, unknown>).guest_expectations && (
+                {Boolean((session.reviews_summary as Record<string, unknown>).guest_expectations) && (
                   <div>
                     <p className="text-sm text-yellow-400 mb-2">お客様の期待</p>
                     <ul className="space-y-1">

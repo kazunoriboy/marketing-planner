@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, UserCheck, Swords, Building, FileText, TrendingUp } from "lucide-react";
+import { Sparkles, UserCheck, Swords, FileText, TrendingUp } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, AnalysisSession, MarketingPlan } from "@/lib/api";
 import Link from "next/link";

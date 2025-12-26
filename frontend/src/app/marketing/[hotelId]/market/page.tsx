@@ -131,7 +131,7 @@ export default function MarketPage() {
                   )}
                 </div>
 
-                {session?.competitors_list && (session.competitors_list as Record<string, unknown>).competitive_factors && (
+                {session?.competitors_list && Boolean((session.competitors_list as Record<string, unknown>).competitive_factors) && (
                   <div className="mt-6">
                     <p className="text-sm text-slate-400 mb-2">競合の強み</p>
                     <div className="flex flex-wrap gap-2">
