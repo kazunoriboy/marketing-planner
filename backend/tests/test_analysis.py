@@ -129,12 +129,23 @@ async def test_analysis_service():
         for i, (plan, count) in enumerate(list(statistics['top_plans'].items())[:3], 1):
             print(f"       {i}. {plan}: {count}件")
     
+    if statistics.get('guest_stats'):
+        gs = statistics['guest_stats']
+        print(f"     - 宿泊人数統計:")
+        print(f"       - 平均: {gs.get('average')} 人")
+        print(f"       - 総人数: {gs.get('total_guests'):,} 人")
+        if gs.get('distribution'):
+            print(f"       - 分布: {gs.get('distribution')}")
+    
     if statistics.get('price_stats'):
         ps = statistics['price_stats']
         print(f"     - 価格統計:")
-        print(f"       - 平均: ¥{ps.get('average'):,.0f}")
-        print(f"       - 最小: ¥{ps.get('min'):,.0f}")
-        print(f"       - 最大: ¥{ps.get('max'):,.0f}")
+        if ps.get('per_guest_average'):
+            print(f"       - 1人あたり平均: ¥{ps.get('per_guest_average'):,.0f}")
+            print(f"       - 1人あたり中央値: ¥{ps.get('per_guest_median'):,.0f}")
+        print(f"       - 合計金額平均: ¥{ps.get('total_average'):,.0f}")
+        print(f"       - 合計金額最小: ¥{ps.get('total_min'):,.0f}")
+        print(f"       - 合計金額最大: ¥{ps.get('total_max'):,.0f}")
     print()
     
     # AIインサイト生成

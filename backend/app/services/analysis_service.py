@@ -47,6 +47,7 @@ class AnalysisService(BaseCSVService):
 - stay_date (宿泊日)
 - plan_name (プラン名)
 - total_price (合計金額)
+- num_guests (宿泊人数・利用人数)
 - status (予約ステータス - キャンセル判定用)
 
 ※データの中身（日付フォーマットや値の傾向）から文脈を読んで判断すること。
@@ -66,6 +67,7 @@ class AnalysisService(BaseCSVService):
   "stay_date": "該当するカラム名またはnull",
   "plan_name": "該当するカラム名またはnull",
   "total_price": "該当するカラム名またはnull",
+  "num_guests": "該当するカラム名またはnull",
   "status": "該当するカラム名またはnull"
 }}"""
         
@@ -100,6 +102,7 @@ class AnalysisService(BaseCSVService):
                 "stay_date": None,
                 "plan_name": None,
                 "total_price": None,
+                "num_guests": None,
                 "status": None
             }
     
@@ -127,6 +130,7 @@ class AnalysisService(BaseCSVService):
             "average_lead_time": None,
             "top_plans": {},
             "weekday_occupancy": {},
+            "guest_stats": {},
             "price_stats": {}
         }
         
@@ -195,7 +199,32 @@ class AnalysisService(BaseCSVService):
                 weekday_counts = df_work['weekday'].value_counts().to_dict()
                 stats["weekday_occupancy"] = {str(k): int(v) for k, v in weekday_counts.items()}
             
-            # === 価格統計 ===
+            # === 宿泊人数統計 ===
+            guests_col = schema_map.get("num_guests")
+            if guests_col and guests_col in df_work.columns:
+                df_work[guests_col] = pd.to_numeric(df_work[guests_col], errors='coerce')
+                valid_guests = df_work[df_work[guests_col] > 0][guests_col]
+                
+                if len(valid_guests) > 0:
+                    # 人数分布を計算（1人、2人、3人、4人、5人以上）
+                    guest_distribution = {}
+                    for n in [1, 2, 3, 4]:
+                        count = len(valid_guests[valid_guests == n])
+                        if count > 0:
+                            guest_distribution[f"{n}人"] = int(count)
+                    count_5_plus = len(valid_guests[valid_guests >= 5])
+                    if count_5_plus > 0:
+                        guest_distribution["5人以上"] = int(count_5_plus)
+                    
+                    stats["guest_stats"] = {
+                        "average": round(valid_guests.mean(), 1) if pd.notna(valid_guests.mean()) else None,
+                        "min": int(valid_guests.min()) if pd.notna(valid_guests.min()) else None,
+                        "max": int(valid_guests.max()) if pd.notna(valid_guests.max()) else None,
+                        "total_guests": int(valid_guests.sum()),
+                        "distribution": guest_distribution
+                    }
+            
+            # === 価格統計（宿泊人数あたり単価） ===
             price_col = schema_map.get("total_price")
             if price_col and price_col in df_work.columns:
                 df_work[price_col] = pd.to_numeric(df_work[price_col], errors='coerce')
@@ -203,14 +232,28 @@ class AnalysisService(BaseCSVService):
                 valid_prices = df_work[df_work[price_col] > 0][price_col]
                 
                 if len(valid_prices) > 0:
+                    # 基本の価格統計（合計金額）
                     stats["price_stats"] = {
-                        "average": round(valid_prices.mean(), 0) if pd.notna(valid_prices.mean()) else None,
-                        "min": round(valid_prices.min(), 0) if pd.notna(valid_prices.min()) else None,
-                        "max": round(valid_prices.max(), 0) if pd.notna(valid_prices.max()) else None,
-                        "median": round(valid_prices.median(), 0) if pd.notna(valid_prices.median()) else None,
+                        "total_average": round(valid_prices.mean(), 0) if pd.notna(valid_prices.mean()) else None,
+                        "total_min": round(valid_prices.min(), 0) if pd.notna(valid_prices.min()) else None,
+                        "total_max": round(valid_prices.max(), 0) if pd.notna(valid_prices.max()) else None,
+                        "total_median": round(valid_prices.median(), 0) if pd.notna(valid_prices.median()) else None,
                         "valid_count": int(len(valid_prices)),
                         "excluded_count": int(len(df_work) - len(valid_prices))
                     }
+                    
+                    # 宿泊人数あたりの単価を計算
+                    if guests_col and guests_col in df_work.columns:
+                        # 価格と人数の両方が有効なデータのみ抽出
+                        valid_data = df_work[(df_work[price_col] > 0) & (df_work[guests_col] > 0)].copy()
+                        if len(valid_data) > 0:
+                            valid_data['price_per_guest'] = valid_data[price_col] / valid_data[guests_col]
+                            price_per_guest = valid_data['price_per_guest']
+                            
+                            stats["price_stats"]["per_guest_average"] = round(price_per_guest.mean(), 0) if pd.notna(price_per_guest.mean()) else None
+                            stats["price_stats"]["per_guest_min"] = round(price_per_guest.min(), 0) if pd.notna(price_per_guest.min()) else None
+                            stats["price_stats"]["per_guest_max"] = round(price_per_guest.max(), 0) if pd.notna(price_per_guest.max()) else None
+                            stats["price_stats"]["per_guest_median"] = round(price_per_guest.median(), 0) if pd.notna(price_per_guest.median()) else None
         
         except Exception as e:
             print(f"統計計算エラー: {e}")

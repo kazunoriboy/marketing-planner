@@ -16,7 +16,8 @@ const STAT_LABELS: Record<string, { label: string; icon: React.ElementType }> = 
   average_lead_time: { label: "平均リードタイム", icon: Clock },
   top_plans: { label: "人気プランTOP5", icon: Star },
   weekday_occupancy: { label: "曜日別予約数", icon: BarChart3 },
-  price_stats: { label: "価格統計", icon: DollarSign },
+  guest_stats: { label: "宿泊人数統計", icon: Users },
+  price_stats: { label: "価格統計（人数あたり単価）", icon: DollarSign },
 };
 
 // 曜日の日本語変換と順序
@@ -116,34 +117,103 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
         );
       }
 
-      // price_stats
-      if (statKey === "price_stats") {
+      // guest_stats - 宿泊人数統計
+      if (statKey === "guest_stats") {
+        const distribution = (obj.distribution as Record<string, number>) || {};
         return (
-          <div className="space-y-1">
-            {obj.average !== undefined && (
-              <p className="text-white">
-                <span className="text-slate-400 text-sm">平均: </span>
-                ¥{formatNumber(Math.round(obj.average as number))}
-              </p>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {obj.average !== undefined && (
+                <p className="text-white">
+                  <span className="text-slate-400 text-sm">平均: </span>
+                  {obj.average as number}人
+                </p>
+              )}
+              {obj.total_guests !== undefined && (
+                <p className="text-white">
+                  <span className="text-slate-400 text-sm">総人数: </span>
+                  {formatNumber(obj.total_guests as number)}人
+                </p>
+              )}
+            </div>
+            {Object.keys(distribution).length > 0 && (
+              <div className="mt-2 pt-2 border-t border-white/10">
+                <p className="text-slate-400 text-xs mb-2">人数分布</p>
+                <div className="space-y-1">
+                  {["1人", "2人", "3人", "4人", "5人以上"].map((key) => {
+                    const count = distribution[key];
+                    if (count === undefined) return null;
+                    return (
+                      <div key={key} className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">{key}</span>
+                        <span className="text-white font-medium">{formatNumber(count)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
-            {obj.median !== undefined && (
-              <p className="text-white">
-                <span className="text-slate-400 text-sm">中央値: </span>
-                ¥{formatNumber(Math.round(obj.median as number))}
-              </p>
+          </div>
+        );
+      }
+
+      // price_stats - 価格統計（人数あたり単価）
+      if (statKey === "price_stats") {
+        const hasPerGuest = obj.per_guest_average !== undefined;
+        return (
+          <div className="space-y-2">
+            {/* 人数あたり単価（メイン表示） */}
+            {hasPerGuest && (
+              <div className="mb-3 pb-3 border-b border-white/10">
+                <p className="text-cyan-400 text-xs mb-2">▼ 1人あたり単価</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {obj.per_guest_average !== undefined && (
+                    <p className="text-white">
+                      <span className="text-slate-400 text-sm">平均: </span>
+                      ¥{formatNumber(Math.round(obj.per_guest_average as number))}
+                    </p>
+                  )}
+                  {obj.per_guest_median !== undefined && (
+                    <p className="text-white">
+                      <span className="text-slate-400 text-sm">中央値: </span>
+                      ¥{formatNumber(Math.round(obj.per_guest_median as number))}
+                    </p>
+                  )}
+                  {obj.per_guest_min !== undefined && (
+                    <p className="text-white">
+                      <span className="text-slate-400 text-sm">最小: </span>
+                      ¥{formatNumber(Math.round(obj.per_guest_min as number))}
+                    </p>
+                  )}
+                  {obj.per_guest_max !== undefined && (
+                    <p className="text-white">
+                      <span className="text-slate-400 text-sm">最大: </span>
+                      ¥{formatNumber(Math.round(obj.per_guest_max as number))}
+                    </p>
+                  )}
+                </div>
+              </div>
             )}
-            {obj.min !== undefined && (
-              <p className="text-white">
-                <span className="text-slate-400 text-sm">最小: </span>
-                ¥{formatNumber(obj.min as number)}
-              </p>
-            )}
-            {obj.max !== undefined && (
-              <p className="text-white">
-                <span className="text-slate-400 text-sm">最大: </span>
-                ¥{formatNumber(obj.max as number)}
-              </p>
-            )}
+            
+            {/* 合計金額（参考表示） */}
+            <div>
+              <p className="text-slate-500 text-xs mb-2">▼ 予約合計金額</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(obj.total_average ?? obj.average) !== undefined && (
+                  <p className="text-slate-300 text-sm">
+                    <span className="text-slate-500 text-xs">平均: </span>
+                    ¥{formatNumber(Math.round((obj.total_average ?? obj.average) as number))}
+                  </p>
+                )}
+                {(obj.total_median ?? obj.median) !== undefined && (
+                  <p className="text-slate-300 text-sm">
+                    <span className="text-slate-500 text-xs">中央値: </span>
+                    ¥{formatNumber(Math.round((obj.total_median ?? obj.median) as number))}
+                  </p>
+                )}
+              </div>
+            </div>
+            
             {obj.excluded_count !== undefined && (obj.excluded_count as number) > 0 && (
               <p className="text-slate-500 text-xs mt-2">
                 ※ 金額0円のデータ {formatNumber(obj.excluded_count as number)}件を除外
@@ -228,8 +298,8 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
     return <p className="text-white">{String(value)}</p>;
   };
 
-  // カードサイズを決定（top_plansとweekday_occupancyは大きめ）
-  const isLargeCard = ["top_plans", "weekday_occupancy", "schema_mapping"].includes(statKey);
+  // カードサイズを決定（top_plans, weekday_occupancy, guest_stats, price_statsは大きめ）
+  const isLargeCard = ["top_plans", "weekday_occupancy", "schema_mapping", "guest_stats", "price_stats"].includes(statKey);
 
   return (
     <div
