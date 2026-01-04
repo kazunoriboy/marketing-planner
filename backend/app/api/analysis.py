@@ -15,6 +15,11 @@ from app.schemas.analysis import (
     ReviewUrlsUpdate,
     ReviewUrlsResponse,
     ReviewAnalysisResponse,
+    PersonaGenerationResponse,
+    PersonasResponse,
+    Persona,
+    PersonaEditRequest,
+    PersonaEditResponse,
 )
 from app.services.csv_analyzer import CSVAnalyzer
 from app.services.analysis_service import AnalysisService
@@ -761,4 +766,388 @@ async def analyze_reviews(
             detail=f"口コミ分析エラー: {str(e)}"
         )
 
+
+# ============================================
+# ペルソナ生成エンドポイント
+# ============================================
+
+@router.post("/hotels/{hotel_id}/personas/generate", response_model=PersonaGenerationResponse)
+async def generate_personas(
+    hotel_id: int,
+    num_personas: int = 3,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    ペルソナを生成
+    
+    分析データ（CSVの統計情報、口コミ分析結果）をもとに
+    AIがターゲット顧客のペルソナを生成します。
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # 分析セッションを取得
+    statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(statement).first()
+    
+    if not analysis_session:
+        raise HTTPException(
+            status_code=400,
+            detail="分析データがありません。先に顧客データまたは口コミの分析を行ってください。"
+        )
+    
+    # 分析データがあるか確認
+    has_csv_data = analysis_session.csv_statistics and len(analysis_session.csv_statistics) > 0
+    has_review_data = analysis_session.reviews_summary and len(analysis_session.reviews_summary) > 0
+    
+    if not has_csv_data and not has_review_data:
+        raise HTTPException(
+            status_code=400,
+            detail="分析データがありません。先に顧客データまたは口コミの分析を行ってください。"
+        )
+    
+    try:
+        # LLMを使ってペルソナを生成
+        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        personas = await _generate_personas_with_llm(
+            llm_client=llm_client,
+            hotel=hotel,
+            csv_statistics=analysis_session.csv_statistics if has_csv_data else None,
+            csv_insights=analysis_session.csv_insights if has_csv_data else None,
+            reviews_summary=analysis_session.reviews_summary if has_review_data else None,
+            num_personas=num_personas
+        )
+        
+        # 分析セッションを更新
+        analysis_session.personas = personas
+        analysis_session.updated_at = datetime.utcnow()
+        session.add(analysis_session)
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return PersonaGenerationResponse(
+            session_id=analysis_session.id,
+            personas=[Persona(**p) for p in personas],
+            generated_at=datetime.utcnow()
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"ペルソナ生成エラー: {str(e)}"
+        )
+
+
+@router.get("/hotels/{hotel_id}/personas", response_model=PersonasResponse)
+async def get_personas(
+    hotel_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    生成済みのペルソナを取得
+    """
+    statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(statement).first()
+    
+    if not analysis_session:
+        return PersonasResponse(
+            session_id=0,
+            personas=[],
+            updated_at=None
+        )
+    
+    return PersonasResponse(
+        session_id=analysis_session.id,
+        personas=analysis_session.personas or [],
+        updated_at=analysis_session.updated_at
+    )
+
+
+async def _generate_personas_with_llm(
+    llm_client,
+    hotel: Hotel,
+    csv_statistics: dict | None,
+    csv_insights: str | None,
+    reviews_summary: dict | None,
+    num_personas: int = 3
+) -> list:
+    """LLMを使ってペルソナを生成"""
+    import json
+    import re
+    
+    # 分析データを整理
+    analysis_context = f"""
+## 宿泊施設情報
+- 施設名: {hotel.name}
+- 住所: {hotel.address}
+"""
+    
+    if csv_statistics:
+        analysis_context += f"""
+## 顧客データ分析結果
+```json
+{json.dumps(csv_statistics, ensure_ascii=False, indent=2)}
+```
+"""
+    
+    if csv_insights:
+        analysis_context += f"""
+## 顧客データからのインサイト
+{csv_insights}
+"""
+    
+    if reviews_summary:
+        analysis_context += f"""
+## 口コミ分析結果
+```json
+{json.dumps(reviews_summary, ensure_ascii=False, indent=2)}
+```
+"""
+    
+    prompt = f"""
+以下の宿泊施設の分析データをもとに、ターゲット顧客のペルソナを{num_personas}人分作成してください。
+
+{analysis_context}
+
+## 出力形式
+以下のJSON形式で{num_personas}人分のペルソナを配列として出力してください。
+各ペルソナは具体的で、分析データに基づいた現実的な人物像にしてください。
+
+```json
+[
+  {{
+    "name": "架空の日本人名（フルネーム）",
+    "age_range": "年齢層（例: 30代後半）",
+    "gender": "性別",
+    "location": "住んでいる場所（例: 東京都世田谷区、大阪府大阪市など）",
+    "occupation": "職業（具体的に）",
+    "travel_purpose": "旅行の主な目的",
+    "values": ["重視すること1", "重視すること2", "重視すること3"],
+    "budget_range": "1泊あたりの予算帯（例: 1万5千〜2万円）",
+    "information_source": ["情報収集に使うメディア1", "情報収集に使うメディア2"],
+    "needs": ["宿泊施設に求めること1", "宿泊施設に求めること2", "宿泊施設に求めること3"],
+    "pain_points": ["旅行に関する悩み1", "旅行に関する悩み2"],
+    "description": "このペルソナの詳細な説明（100〜150文字程度）。どんな人物で、なぜこの宿を選ぶのか、どんな体験を期待しているのかを具体的に。"
+  }}
+]
+```
+
+## 注意事項
+- 分析データに基づいた現実的なペルソナを作成してください
+- 各ペルソナは異なる特徴を持つようにしてください（年齢層、旅行目的、予算帯、住んでいる場所などが被らないように）
+- locationは宿泊施設へのアクセスを考慮して、現実的な居住地を設定してください
+- 日本語で出力してください
+- JSON配列のみを出力し、余計な説明は不要です
+"""
+    
+    response = await llm_client.generate_structured_output(
+        user_prompt=prompt,
+        system_prompt="あなたは宿泊業界のマーケティングエキスパートです。顧客分析データに基づいて、具体的で実用的なペルソナを作成します。",
+        max_tokens=4096
+    )
+    
+    # JSONをパース
+    try:
+        # コードブロックを除去
+        json_str = response.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        if json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        json_str = json_str.strip()
+        
+        # JSON配列を抽出
+        json_match = re.search(r'\[.*\]', json_str, re.DOTALL)
+        if json_match:
+            personas = json.loads(json_match.group())
+        else:
+            personas = json.loads(json_str)
+        
+        # 必須フィールドの検証
+        required_fields = ["name", "age_range", "gender", "location", "occupation", "travel_purpose", 
+                          "values", "budget_range", "information_source", "needs", 
+                          "pain_points", "description"]
+        
+        validated_personas = []
+        for persona in personas[:num_personas]:
+            # 欠けているフィールドにデフォルト値を設定
+            for field in required_fields:
+                if field not in persona:
+                    if field in ["values", "information_source", "needs", "pain_points"]:
+                        persona[field] = []
+                    else:
+                        persona[field] = "未設定"
+            validated_personas.append(persona)
+        
+        return validated_personas
+    
+    except json.JSONDecodeError as e:
+        raise Exception(f"ペルソナのJSON解析に失敗しました: {str(e)}")
+
+
+@router.put("/hotels/{hotel_id}/personas/{persona_index}", response_model=PersonaEditResponse)
+async def edit_persona(
+    hotel_id: int,
+    persona_index: int,
+    request: PersonaEditRequest,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    ペルソナを修正
+    
+    指定したペルソナに対して修正指示を出し、AIが修正したペルソナを返します。
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # 分析セッションを取得
+    statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(statement).first()
+    
+    if not analysis_session or not analysis_session.personas:
+        raise HTTPException(status_code=404, detail="ペルソナが見つかりません")
+    
+    # インデックスの検証
+    if persona_index < 0 or persona_index >= len(analysis_session.personas):
+        raise HTTPException(
+            status_code=400,
+            detail=f"ペルソナのインデックスが不正です。0〜{len(analysis_session.personas) - 1}の範囲で指定してください。"
+        )
+    
+    try:
+        # LLMを使ってペルソナを修正
+        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        current_persona = analysis_session.personas[persona_index]
+        
+        edited_persona = await _edit_persona_with_llm(
+            llm_client=llm_client,
+            current_persona=current_persona,
+            instruction=request.instruction
+        )
+        
+        # ペルソナを更新
+        personas = list(analysis_session.personas)
+        personas[persona_index] = edited_persona
+        analysis_session.personas = personas
+        analysis_session.updated_at = datetime.utcnow()
+        
+        session.add(analysis_session)
+        session.commit()
+        session.refresh(analysis_session)
+        
+        return PersonaEditResponse(
+            session_id=analysis_session.id,
+            persona=Persona(**edited_persona),
+            persona_index=persona_index,
+            updated_at=datetime.utcnow()
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"ペルソナ修正エラー: {str(e)}"
+        )
+
+
+async def _edit_persona_with_llm(
+    llm_client,
+    current_persona: dict,
+    instruction: str
+) -> dict:
+    """LLMを使ってペルソナを修正"""
+    import json
+    import re
+    
+    prompt = f"""
+以下のペルソナを、ユーザーの修正指示に従って修正してください。
+
+## 現在のペルソナ
+```json
+{json.dumps(current_persona, ensure_ascii=False, indent=2)}
+```
+
+## 修正指示
+{instruction}
+
+## 出力形式
+修正後のペルソナを以下のJSON形式で出力してください。
+修正指示に関連する部分のみを変更し、他の部分は元のまま維持してください。
+
+```json
+{{
+  "name": "架空の日本人名（フルネーム）",
+  "age_range": "年齢層（例: 30代後半）",
+  "gender": "性別",
+  "location": "住んでいる場所（例: 東京都世田谷区）",
+  "occupation": "職業（具体的に）",
+  "travel_purpose": "旅行の主な目的",
+  "values": ["重視すること1", "重視すること2", "重視すること3"],
+  "budget_range": "1泊あたりの予算帯（例: 1万5千〜2万円）",
+  "information_source": ["情報収集に使うメディア1", "情報収集に使うメディア2"],
+  "needs": ["宿泊施設に求めること1", "宿泊施設に求めること2", "宿泊施設に求めること3"],
+  "pain_points": ["旅行に関する悩み1", "旅行に関する悩み2"],
+  "description": "このペルソナの詳細な説明"
+}}
+```
+
+## 注意事項
+- 修正指示に関連する部分のみを変更してください
+- 変更に伴い、descriptionも適切に更新してください
+- 日本語で出力してください
+- JSONオブジェクトのみを出力し、余計な説明は不要です
+"""
+    
+    response = await llm_client.generate_structured_output(
+        user_prompt=prompt,
+        system_prompt="あなたは宿泊業界のマーケティングエキスパートです。ペルソナの修正を行います。",
+        max_tokens=2048
+    )
+    
+    # JSONをパース
+    try:
+        # コードブロックを除去
+        json_str = response.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        if json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        json_str = json_str.strip()
+        
+        # JSONオブジェクトを抽出
+        json_match = re.search(r'\{.*\}', json_str, re.DOTALL)
+        if json_match:
+            edited_persona = json.loads(json_match.group())
+        else:
+            edited_persona = json.loads(json_str)
+        
+        # 必須フィールドの検証
+        required_fields = ["name", "age_range", "gender", "location", "occupation", "travel_purpose", 
+                          "values", "budget_range", "information_source", "needs", 
+                          "pain_points", "description"]
+        
+        for field in required_fields:
+            if field not in edited_persona:
+                # 元のペルソナから値を引き継ぐ
+                if field in current_persona:
+                    edited_persona[field] = current_persona[field]
+                elif field in ["values", "information_source", "needs", "pain_points"]:
+                    edited_persona[field] = []
+                else:
+                    edited_persona[field] = "未設定"
+        
+        return edited_persona
+    
+    except json.JSONDecodeError as e:
+        raise Exception(f"ペルソナのJSON解析に失敗しました: {str(e)}")
 

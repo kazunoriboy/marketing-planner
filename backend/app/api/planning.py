@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/planning", tags=["planning"])
 async def generate_marketing_plans_authenticated(
     hotel_id: int,
     num_plans: int = 3,
+    persona_index: int = None,
     permission: FacilityAdminHotel = Depends(require_hotel_access),
     session: Session = Depends(get_session)
 ):
@@ -34,6 +35,7 @@ async def generate_marketing_plans_authenticated(
     - 施設の分析セッションを取得
     - 顧客分析結果と市場調査結果を基にプラン案を生成
     - 3C分析・PEST分析を含む戦略的なプランを作成
+    - persona_index: 特定のペルソナに対してプランを生成する場合に指定（0始まり）
     """
     # 施設の分析セッションを取得
     statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
@@ -52,6 +54,15 @@ async def generate_marketing_plans_authenticated(
             detail="分析データが不足しています。先に顧客分析または市場調査を実行してください。"
         )
     
+    # ペルソナインデックスの検証
+    if persona_index is not None:
+        personas = analysis_session.personas or []
+        if persona_index < 0 or persona_index >= len(personas):
+            raise HTTPException(
+                status_code=400,
+                detail=f"無効なペルソナインデックスです。0〜{len(personas)-1}の範囲で指定してください。"
+            )
+    
     try:
         # プラン生成サービスを初期化
         generator = PlanGenerator()
@@ -61,7 +72,8 @@ async def generate_marketing_plans_authenticated(
         plans_data = await generator.generate_plans(
             analysis_session=analysis_session,
             num_plans=num_plans,
-            llm_client=llm_client
+            llm_client=llm_client,
+            persona_index=persona_index
         )
         
         # データベースに保存
@@ -218,7 +230,7 @@ async def edit_plan_section(
     try:
         # プラン生成サービスを初期化
         generator = PlanGenerator()
-        llm_client = get_llm_client()
+        llm_client = get_llm_client(model_name="gemini-3-flash-preview")
         
         # プラン全体を修正
         edited_plan_data = await generator.edit_section(

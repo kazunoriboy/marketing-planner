@@ -98,7 +98,7 @@ class LLMClient:
         aspect_ratio: str = "16:9"
     ) -> Tuple[bytes, str]:
         """
-        テキストから画像を生成（Gemini 2.5 Flash Image / Nano Banana）
+        テキストから画像を生成
         
         Args:
             prompt: 画像生成プロンプト
@@ -106,6 +106,10 @@ class LLMClient:
         
         Returns:
             (画像バイナリデータ, MIMEタイプ) のタプル
+        
+        Note:
+            画像生成に使用するモデルはクライアント初期化時のmodel_nameを使用
+            (例: gemini-3-pro-image-preview)
         """
         try:
             # 新しい google-genai パッケージを使用
@@ -115,9 +119,9 @@ class LLMClient:
             # クライアントを初期化（API Keyは環境変数から自動取得）
             client = genai_new.Client(api_key=os.getenv("GOOGLE_API_KEY"))
             
-            # 画像生成
+            # 画像生成（インスタンスのmodel_nameを使用）
             response = client.models.generate_content(
-                model="gemini-2.0-flash-exp",
+                model=self.model_name,
                 contents=[prompt],
                 config=genai_types.GenerateContentConfig(
                     response_modalities=["Text", "Image"]
@@ -135,13 +139,13 @@ class LLMClient:
             raise Exception(f"画像生成エラー: {str(e)}")
 
 
-# シングルトンインスタンス
-_llm_client: Optional[LLMClient] = None
+# モデル名ごとのインスタンスキャッシュ
+_llm_clients: dict[str, LLMClient] = {}
 
 
 def get_llm_client(model_name: str = "gemini-2.5-flash-lite") -> LLMClient:
     """
-    LLMクライアントのシングルトンインスタンスを取得
+    LLMクライアントのインスタンスを取得（モデル名ごとにキャッシュ）
     
     Args:
         model_name: 使用するGeminiモデル名（デフォルト: gemini-2.5-flash-lite）
@@ -149,10 +153,10 @@ def get_llm_client(model_name: str = "gemini-2.5-flash-lite") -> LLMClient:
     Returns:
         LLMクライアントインスタンス
     """
-    global _llm_client
-    if _llm_client is None:
-        _llm_client = LLMClient(model_name=model_name)
-    return _llm_client
+    global _llm_clients
+    if model_name not in _llm_clients:
+        _llm_clients[model_name] = LLMClient(model_name=model_name)
+    return _llm_clients[model_name]
 
 
 async def generate_text(

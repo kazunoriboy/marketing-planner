@@ -128,6 +128,25 @@ class AnalysisSession(SQLModel, table=True):
     reviews_summary: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 口コミ要約
     regional_trends: Optional[str] = None  # 地域トレンド
     
+    # ペルソナ（顧客像）
+    # [
+    #   {
+    #     "name": "田中花子",
+    #     "age_range": "30代後半",
+    #     "gender": "女性",
+    #     "occupation": "会社員（営業職）",
+    #     "travel_purpose": "週末リフレッシュ",
+    #     "values": ["温泉でゆっくり", "美味しい料理", "非日常体験"],
+    #     "budget_range": "1泊2万〜3万円",
+    #     "information_source": ["じゃらん", "Instagram", "友人の口コミ"],
+    #     "needs": ["清潔感のある部屋", "地元食材を使った料理", "夜遅くまでチェックイン可能"],
+    #     "pain_points": ["平日は忙しい", "休日の予約が取りにくい"],
+    #     "description": "ペルソナの詳細説明"
+    #   },
+    #   ...
+    # ]
+    personas: list = Field(default_factory=list, sa_column=Column(JSON))
+    
     # メタデータ
     analysis_date: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime = Field(default_factory=datetime.utcnow)

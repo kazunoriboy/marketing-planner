@@ -92,6 +92,10 @@ async def generate_creative_assets_authenticated(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
+        # LP生成用（gemini-3-pro-preview）
+        llm_client_lp = get_llm_client(model_name="gemini-3-pro-preview")
+        # 画像生成用（gemini-3-pro-image-preview）
+        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
         
         lp_code = None
         lp_prompt = None
@@ -106,7 +110,7 @@ async def generate_creative_assets_authenticated(
         if request.generate_lp:
             lp_image_urls, lp_image_gen_prompt = await generator.generate_lp_images(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client,
+                llm_client=llm_client_image,
                 hotel_id=hotel_id
             )
         
@@ -114,7 +118,7 @@ async def generate_creative_assets_authenticated(
         if request.generate_images:
             ad_image_urls, ad_image_gen_prompt = await generator.generate_ad_images(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client,
+                llm_client=llm_client_image,
                 hotel_id=hotel_id
             )
         
@@ -128,7 +132,7 @@ async def generate_creative_assets_authenticated(
             
             lp_code, lp_prompt = await generator.generate_landing_page(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client,
+                llm_client=llm_client_lp,
                 cv_url=hotel.cv_url,
                 hotel_info={
                     "name": hotel.name,

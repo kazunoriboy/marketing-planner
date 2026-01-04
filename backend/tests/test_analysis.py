@@ -38,6 +38,15 @@ def create_sample_csv() -> bytes:
     
     statuses = ["確定", "確定", "確定", "確定", "キャンセル"]  # 20%キャンセル率
     
+    # 予約者エリア（都道府県）
+    prefectures = [
+        "東京都", "東京都", "東京都",  # 多め
+        "神奈川県", "神奈川県",
+        "埼玉県", "千葉県",
+        "大阪府", "京都府",
+        "愛知県", "福岡県", "北海道"
+    ]
+    
     for i in range(100):
         # 宿泊日
         stay_date = base_date + timedelta(days=random.randint(0, 365))
@@ -51,7 +60,8 @@ def create_sample_csv() -> bytes:
             "プラン名": random.choice(plans),
             "合計金額": random.randint(5000, 50000),
             "ステータス": random.choice(statuses),
-            "宿泊人数": random.randint(1, 4)
+            "宿泊人数": random.randint(1, 4),
+            "都道府県": random.choice(prefectures)  # 予約者エリアを追加
         }
         data.append(record)
     
@@ -146,6 +156,20 @@ async def test_analysis_service():
         print(f"       - 合計金額平均: ¥{ps.get('total_average'):,.0f}")
         print(f"       - 合計金額最小: ¥{ps.get('total_min'):,.0f}")
         print(f"       - 合計金額最大: ¥{ps.get('total_max'):,.0f}")
+    
+    if statistics.get('guest_area_stats'):
+        gas = statistics['guest_area_stats']
+        print(f"     - 予約者エリア統計:")
+        if gas.get('region_distribution'):
+            print(f"       - 地方別分布:")
+            for region, count in gas['region_distribution'].items():
+                print(f"         - {region}: {count}件")
+        if gas.get('top_areas'):
+            print(f"       - エリア別Top5:")
+            for i, (area, count) in enumerate(list(gas['top_areas'].items())[:5], 1):
+                print(f"         {i}. {area}: {count}件")
+        if gas.get('total_unique_areas'):
+            print(f"       - ユニークエリア数: {gas['total_unique_areas']}")
     print()
     
     # AIインサイト生成

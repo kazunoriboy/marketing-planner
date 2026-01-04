@@ -49,8 +49,10 @@ class AnalysisService(BaseCSVService):
 - total_price (合計金額)
 - num_guests (宿泊人数・利用人数)
 - status (予約ステータス - キャンセル判定用)
+- guest_area (予約者の住所・都道府県・居住地域 - 「東京都」「大阪府」「関東」「九州」などのエリア情報)
 
 ※データの中身（日付フォーマットや値の傾向）から文脈を読んで判断すること。
+※guest_areaは「都道府県」「住所」「居住地」「エリア」「地域」などの名前のカラムを探してください。
 該当するカラムがない場合は null を返してください。"""
         
         user_prompt = f"""以下のCSVデータを解析してください。
@@ -68,7 +70,8 @@ class AnalysisService(BaseCSVService):
   "plan_name": "該当するカラム名またはnull",
   "total_price": "該当するカラム名またはnull",
   "num_guests": "該当するカラム名またはnull",
-  "status": "該当するカラム名またはnull"
+  "status": "該当するカラム名またはnull",
+  "guest_area": "該当するカラム名またはnull"
 }}"""
         
         # Gemini 2.5 Flash-Liteでスキーマを推定
@@ -103,7 +106,8 @@ class AnalysisService(BaseCSVService):
                 "plan_name": None,
                 "total_price": None,
                 "num_guests": None,
-                "status": None
+                "status": None,
+                "guest_area": None
             }
     
     # JSON変換はBaseCSVServiceから継承
@@ -131,7 +135,8 @@ class AnalysisService(BaseCSVService):
             "top_plans": {},
             "weekday_occupancy": {},
             "guest_stats": {},
-            "price_stats": {}
+            "price_stats": {},
+            "guest_area_stats": {}  # 予約者の居住エリア統計
         }
         
         try:
@@ -254,6 +259,57 @@ class AnalysisService(BaseCSVService):
                             stats["price_stats"]["per_guest_min"] = round(price_per_guest.min(), 0) if pd.notna(price_per_guest.min()) else None
                             stats["price_stats"]["per_guest_max"] = round(price_per_guest.max(), 0) if pd.notna(price_per_guest.max()) else None
                             stats["price_stats"]["per_guest_median"] = round(price_per_guest.median(), 0) if pd.notna(price_per_guest.median()) else None
+            
+            # === 予約者居住エリア統計 ===
+            area_col = schema_map.get("guest_area")
+            if area_col and area_col in df_work.columns:
+                # 空白やNaNを除外して集計
+                valid_areas = df_work[df_work[area_col].notna() & (df_work[area_col].astype(str).str.strip() != '')]
+                
+                if len(valid_areas) > 0:
+                    # エリア別予約数Top10
+                    area_counts = valid_areas[area_col].value_counts().head(10).to_dict()
+                    top_areas = {str(k): int(v) for k, v in area_counts.items()}
+                    
+                    # 全エリア数
+                    total_areas = valid_areas[area_col].nunique()
+                    
+                    # 地方別集計（都道府県を地方に変換）
+                    region_mapping = {
+                        '北海道': '北海道',
+                        '青森県': '東北', '岩手県': '東北', '宮城県': '東北', '秋田県': '東北', '山形県': '東北', '福島県': '東北',
+                        '茨城県': '関東', '栃木県': '関東', '群馬県': '関東', '埼玉県': '関東', '千葉県': '関東', '東京都': '関東', '神奈川県': '関東',
+                        '新潟県': '中部', '富山県': '中部', '石川県': '中部', '福井県': '中部', '山梨県': '中部', '長野県': '中部', '岐阜県': '中部', '静岡県': '中部', '愛知県': '中部',
+                        '三重県': '近畿', '滋賀県': '近畿', '京都府': '近畿', '大阪府': '近畿', '兵庫県': '近畿', '奈良県': '近畿', '和歌山県': '近畿',
+                        '鳥取県': '中国', '島根県': '中国', '岡山県': '中国', '広島県': '中国', '山口県': '中国',
+                        '徳島県': '四国', '香川県': '四国', '愛媛県': '四国', '高知県': '四国',
+                        '福岡県': '九州', '佐賀県': '九州', '長崎県': '九州', '熊本県': '九州', '大分県': '九州', '宮崎県': '九州', '鹿児島県': '九州', '沖縄県': '九州'
+                    }
+                    
+                    # 都道府県から地方を抽出（部分一致で対応）
+                    def get_region(area_str):
+                        area_str = str(area_str)
+                        for pref, region in region_mapping.items():
+                            if pref in area_str:
+                                return region
+                        return 'その他'
+                    
+                    valid_areas_copy = valid_areas.copy()
+                    valid_areas_copy['region'] = valid_areas_copy[area_col].apply(get_region)
+                    region_counts = valid_areas_copy['region'].value_counts().to_dict()
+                    region_distribution = {str(k): int(v) for k, v in region_counts.items() if k != 'その他'}
+                    
+                    # その他が多い場合は含める
+                    other_count = region_counts.get('その他', 0)
+                    if other_count > 0 and other_count > len(valid_areas) * 0.1:  # 10%以上の場合
+                        region_distribution['その他'] = int(other_count)
+                    
+                    stats["guest_area_stats"] = {
+                        "top_areas": top_areas,
+                        "total_unique_areas": int(total_areas),
+                        "total_records_with_area": int(len(valid_areas)),
+                        "region_distribution": region_distribution
+                    }
         
         except Exception as e:
             print(f"統計計算エラー: {e}")

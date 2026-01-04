@@ -88,3 +88,49 @@ class ReviewAnalysisResponse(BaseModel):
     analyzed_at: datetime
 
 
+# ============================================
+# ペルソナ関連スキーマ
+# ============================================
+
+class Persona(BaseModel):
+    """ペルソナ（顧客像）"""
+    name: str  # 架空の名前
+    age_range: str  # 年齢層（例: "30代後半"）
+    gender: str  # 性別
+    location: str  # 住んでいるところ（例: "東京都世田谷区"）
+    occupation: str  # 職業
+    travel_purpose: str  # 旅行目的
+    values: List[str]  # 価値観・重視すること
+    budget_range: str  # 予算帯
+    information_source: List[str]  # 情報収集方法
+    needs: List[str]  # 宿泊施設に求めること
+    pain_points: List[str]  # 悩み・課題
+    description: str  # 詳細説明
+
+
+class PersonaGenerationResponse(BaseModel):
+    """ペルソナ生成レスポンス"""
+    session_id: int
+    personas: List[Persona]
+    generated_at: datetime
+
+
+class PersonasResponse(BaseModel):
+    """ペルソナ取得レスポンス"""
+    session_id: int
+    personas: List[Dict]
+    updated_at: Optional[datetime] = None
+
+
+class PersonaEditRequest(BaseModel):
+    """ペルソナ修正リクエスト"""
+    persona_index: int  # 修正対象のペルソナのインデックス（0, 1, 2）
+    instruction: str  # 修正の指示（例: "もっと若い世代にしてほしい"、"予算を高めに設定してほしい"）
+
+
+class PersonaEditResponse(BaseModel):
+    """ペルソナ修正レスポンス"""
+    session_id: int
+    persona: Persona  # 修正後のペルソナ
+    persona_index: int
+    updated_at: datetime

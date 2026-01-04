@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare } from "lucide-react";
+import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare, Sparkles, User, Briefcase, Target, Heart, Wallet, Search, AlertTriangle, MapPin, Edit3, X, Send } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, AnalysisSession, ReviewUrlsUpdate } from "@/lib/api";
+import { marketingApi, AnalysisSession, ReviewUrlsUpdate, Persona } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -18,6 +18,7 @@ const STAT_LABELS: Record<string, { label: string; icon: React.ElementType }> = 
   weekday_occupancy: { label: "曜日別予約数", icon: BarChart3 },
   guest_stats: { label: "宿泊人数統計", icon: Users },
   price_stats: { label: "価格統計（人数あたり単価）", icon: DollarSign },
+  guest_area_stats: { label: "予約者エリア統計", icon: MapPin },
 };
 
 // 曜日の日本語変換と順序
@@ -279,6 +280,59 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
         );
       }
 
+      // guest_area_stats - 予約者エリア統計
+      if (statKey === "guest_area_stats") {
+        const topAreas = (obj.top_areas as Record<string, number>) || {};
+        const regionDist = (obj.region_distribution as Record<string, number>) || {};
+        return (
+          <div className="space-y-3">
+            {/* 地方別分布 */}
+            {Object.keys(regionDist).length > 0 && (
+              <div>
+                <p className="text-cyan-400 text-xs mb-2">▼ 地方別予約数</p>
+                <div className="space-y-1">
+                  {Object.entries(regionDist)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([region, count]) => (
+                      <div key={region} className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">{region}</span>
+                        <span className="text-white font-medium">{formatNumber(count)}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            {/* Top エリア */}
+            {Object.keys(topAreas).length > 0 && (
+              <div className="pt-2 border-t border-white/10">
+                <p className="text-slate-500 text-xs mb-2">▼ エリア別Top10</p>
+                <div className="space-y-1">
+                  {Object.entries(topAreas).slice(0, 10).map(([area, count], index) => (
+                    <div key={area} className="flex items-start gap-2">
+                      <span className="text-purple-400 font-bold text-xs min-w-[16px]">
+                        {index + 1}.
+                      </span>
+                      <div className="flex-1 flex justify-between items-center min-w-0">
+                        <span className="text-slate-300 text-sm truncate" title={area}>
+                          {area}
+                        </span>
+                        <span className="text-white font-medium text-sm ml-2">{formatNumber(count)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* 統計サマリー */}
+            {obj.total_unique_areas !== undefined && (
+              <p className="text-slate-500 text-xs pt-2 border-t border-white/10">
+                {formatNumber(obj.total_records_with_area as number)}件中 {formatNumber(obj.total_unique_areas as number)}エリアから予約
+              </p>
+            )}
+          </div>
+        );
+      }
+
       // その他のオブジェクト - キー: 値形式
       const entries = Object.entries(obj);
       return (
@@ -298,8 +352,8 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
     return <p className="text-white">{String(value)}</p>;
   };
 
-  // カードサイズを決定（top_plans, weekday_occupancy, guest_stats, price_statsは大きめ）
-  const isLargeCard = ["top_plans", "weekday_occupancy", "schema_mapping", "guest_stats", "price_stats"].includes(statKey);
+  // カードサイズを決定（top_plans, weekday_occupancy, guest_stats, price_stats, guest_area_statsは大きめ）
+  const isLargeCard = ["top_plans", "weekday_occupancy", "schema_mapping", "guest_stats", "price_stats", "guest_area_stats"].includes(statKey);
 
   return (
     <div
@@ -313,6 +367,258 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
       </div>
       <div className="overflow-hidden">{renderContent()}</div>
     </div>
+  );
+}
+
+// ペルソナカードコンポーネント
+interface PersonaCardProps {
+  persona: Persona;
+  index: number;
+  onEdit: (index: number, instruction: string) => Promise<void>;
+  isEditing: boolean;
+}
+
+function PersonaCard({ persona, index, onEdit, isEditing }: PersonaCardProps) {
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // 性別に応じた背景色のグラデーション
+  const gradients = [
+    "from-purple-500/20 to-pink-500/20",
+    "from-blue-500/20 to-cyan-500/20",
+    "from-amber-500/20 to-orange-500/20",
+  ];
+  const borderColors = [
+    "border-purple-500/30",
+    "border-blue-500/30",
+    "border-amber-500/30",
+  ];
+  const textColors = [
+    "text-purple-400",
+    "text-blue-400",
+    "text-amber-400",
+  ];
+  const buttonColors = [
+    "bg-purple-500 hover:bg-purple-600",
+    "bg-blue-500 hover:bg-blue-600",
+    "bg-amber-500 hover:bg-amber-600",
+  ];
+
+  const handleSubmitEdit = async () => {
+    if (!editInstruction.trim()) return;
+    setSubmitting(true);
+    try {
+      await onEdit(index, editInstruction);
+      setShowEditModal(false);
+      setEditInstruction("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className={`bg-gradient-to-br ${gradients[index % 3]} rounded-xl p-6 border ${borderColors[index % 3]} transition-all hover:shadow-lg relative ${isEditing ? "opacity-50 pointer-events-none" : ""}`}>
+        {/* 修正ボタン */}
+        <button
+          onClick={() => setShowEditModal(true)}
+          disabled={isEditing}
+          className={`absolute top-4 right-4 p-2 rounded-lg ${buttonColors[index % 3]} text-white transition-all hover:scale-105 disabled:opacity-50`}
+          title="このペルソナを修正"
+        >
+          <Edit3 className="w-4 h-4" />
+        </button>
+
+        {/* ヘッダー */}
+        <div className="flex items-start gap-4 mb-5 pr-10">
+          <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${gradients[index % 3]} flex items-center justify-center border-2 ${borderColors[index % 3]}`}>
+            <User className={`w-8 h-8 ${textColors[index % 3]}`} />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-xl font-bold text-white mb-1">{persona.name}</h4>
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="px-2 py-0.5 bg-white/10 rounded-full text-slate-300">{persona.age_range}</span>
+              <span className="px-2 py-0.5 bg-white/10 rounded-full text-slate-300">{persona.gender}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 住んでいるところ */}
+        {persona.location && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <MapPin className="w-4 h-4 text-slate-400" />
+              <span className="text-sm text-slate-400">住んでいるところ</span>
+            </div>
+            <p className="text-white">{persona.location}</p>
+          </div>
+        )}
+
+        {/* 職業 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Briefcase className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">職業</span>
+          </div>
+          <p className="text-white font-medium">{persona.occupation}</p>
+        </div>
+
+        {/* 旅行目的 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Target className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">旅行目的</span>
+          </div>
+          <p className="text-white">{persona.travel_purpose}</p>
+        </div>
+
+        {/* 価値観 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Heart className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">重視すること</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {persona.values.map((value, i) => (
+              <span key={i} className={`px-2 py-1 bg-white/10 rounded text-sm ${textColors[index % 3]}`}>
+                {value}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* 予算 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">予算帯</span>
+          </div>
+          <p className="text-white font-semibold">{persona.budget_range}</p>
+        </div>
+
+        {/* 情報収集方法 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Search className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">情報収集方法</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {persona.information_source.map((source, i) => (
+              <span key={i} className="px-2 py-1 bg-white/5 rounded text-sm text-slate-300">
+                {source}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* 宿泊施設に求めること */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Star className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">宿泊施設に求めること</span>
+          </div>
+          <ul className="space-y-1">
+            {persona.needs.map((need, i) => (
+              <li key={i} className="text-slate-300 text-sm flex items-start gap-2">
+                <span className={textColors[index % 3]}>•</span>
+                {need}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* 悩み・課題 */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-400">悩み・課題</span>
+          </div>
+          <ul className="space-y-1">
+            {persona.pain_points.map((point, i) => (
+              <li key={i} className="text-slate-400 text-sm flex items-start gap-2">
+                <span className="text-red-400">•</span>
+                {point}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* 詳細説明 */}
+        <div className="pt-4 border-t border-white/10">
+          <p className="text-slate-300 text-sm leading-relaxed">{persona.description}</p>
+        </div>
+
+        {/* ローディングオーバーレイ */}
+        {isEditing && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
+            <div className="flex items-center gap-3 text-white">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <span>修正中...</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 修正モーダル */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className={`bg-slate-900 rounded-xl p-6 max-w-lg w-full border ${borderColors[index % 3]}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Edit3 className={`w-5 h-5 ${textColors[index % 3]}`} />
+                ペルソナを修正: {persona.name}
+              </h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="p-1 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-slate-400 text-sm mb-4">
+              このペルソナに対する修正指示を入力してください。AIが指示に従ってペルソナを修正します。
+            </p>
+
+            <textarea
+              value={editInstruction}
+              onChange={(e) => setEditInstruction(e.target.value)}
+              placeholder="例: もっと若い世代にしてほしい、予算を高めに設定してほしい、旅行目的をビジネス出張に変えてほしい..."
+              className="w-full h-32 bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 resize-none"
+              disabled={submitting}
+            />
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => setShowEditModal(false)}
+                disabled={submitting}
+                className="flex-1 py-2 px-4 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleSubmitEdit}
+                disabled={submitting || !editInstruction.trim()}
+                className={`flex-1 py-2 px-4 rounded-lg ${buttonColors[index % 3]} text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    修正中...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    修正を実行
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -333,18 +639,28 @@ export default function PersonaPage() {
   const [analyzingReviews, setAnalyzingReviews] = useState(false);
   const [urlSaveMessage, setUrlSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // ペルソナ関連のstate
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [generatingPersonas, setGeneratingPersonas] = useState(false);
+  const [personaError, setPersonaError] = useState<string | null>(null);
+  const [editingPersonaIndex, setEditingPersonaIndex] = useState<number | null>(null);
+
   useEffect(() => {
     async function loadData() {
       try {
-        const [sessionData, urlsData] = await Promise.all([
+        const [sessionData, urlsData, personasData] = await Promise.all([
           marketingApi.getAnalysisSession(hotelId),
           marketingApi.getReviewUrls(hotelId).catch(() => null),
+          marketingApi.getPersonas(hotelId).catch(() => null),
         ]);
         setSession(sessionData);
         if (urlsData?.review_urls) {
           setReviewUrls(urlsData.review_urls);
           setJalanUrl(urlsData.review_urls.jalan || "");
           setGoogleUrl(urlsData.review_urls.google || "");
+        }
+        if (personasData?.personas) {
+          setPersonas(personasData.personas);
         }
       } catch (error) {
         console.error("Failed to load session:", error);
@@ -418,6 +734,43 @@ export default function PersonaPage() {
       alert("口コミ分析に失敗しました。Difyの設定を確認してください。");
     } finally {
       setAnalyzingReviews(false);
+    }
+  };
+
+  const handleGeneratePersonas = async () => {
+    setGeneratingPersonas(true);
+    setPersonaError(null);
+    try {
+      const result = await marketingApi.generatePersonas(hotelId, 3);
+      setPersonas(result.personas);
+    } catch (error) {
+      console.error("Persona generation failed:", error);
+      setPersonaError(
+        error instanceof Error ? error.message : "ペルソナの生成に失敗しました"
+      );
+    } finally {
+      setGeneratingPersonas(false);
+    }
+  };
+
+  const handleEditPersona = async (personaIndex: number, instruction: string) => {
+    setEditingPersonaIndex(personaIndex);
+    setPersonaError(null);
+    try {
+      const result = await marketingApi.editPersona(hotelId, personaIndex, instruction);
+      // ペルソナを更新
+      setPersonas((prev) => {
+        const updated = [...prev];
+        updated[personaIndex] = result.persona;
+        return updated;
+      });
+    } catch (error) {
+      console.error("Persona edit failed:", error);
+      setPersonaError(
+        error instanceof Error ? error.message : "ペルソナの修正に失敗しました"
+      );
+    } finally {
+      setEditingPersonaIndex(null);
     }
   };
 
@@ -673,7 +1026,7 @@ export default function PersonaPage() {
 
           {/* 顧客データ分析結果セクション */}
           {hasCustomerData && (
-            <div className="glass-card p-8">
+            <div className="glass-card p-8 mb-8">
               <div className="flex items-center gap-3 mb-6">
                 <Users className="w-6 h-6 text-purple-400" />
                 <h3 className="text-2xl font-bold text-white">顧客データ分析結果</h3>
@@ -711,6 +1064,106 @@ export default function PersonaPage() {
                     <StatCard key={key} statKey={key} value={value} />
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ペルソナ生成セクション */}
+          <div className="glass-card p-8 mb-8">
+            <div className="flex items-center gap-3 mb-6">
+              <Sparkles className="w-6 h-6 text-yellow-400" />
+              <h3 className="text-2xl font-bold text-white">ペルソナを作成</h3>
+            </div>
+
+            <p className="text-slate-300 mb-6">
+              顧客データと口コミ分析の結果をもとに、AIがターゲット顧客のペルソナ（架空の顧客像）を3つ生成します。
+              ペルソナを活用することで、より効果的なマーケティング戦略を立てることができます。
+            </p>
+
+            {/* 生成に必要なデータがあるか確認 */}
+            {!hasCustomerData && !hasReviewData ? (
+              <div className="p-4 bg-yellow-500/10 rounded-lg border border-yellow-500/20 mb-6">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-yellow-400" />
+                  <p className="text-yellow-300 text-sm">
+                    ペルソナを生成するには、先に顧客データ（CSV）または口コミの分析を行ってください。
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20 mb-6">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                  <div className="text-green-300 text-sm">
+                    <p className="font-medium">分析データが利用可能です</p>
+                    <p className="text-green-400/80 mt-1">
+                      {hasCustomerData && "顧客データ "}
+                      {hasCustomerData && hasReviewData && "・ "}
+                      {hasReviewData && "口コミ分析"}
+                      のデータをもとにペルソナを生成します。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {personaError && (
+              <div className="mb-6 p-4 bg-red-500/20 rounded-lg flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400" />
+                <span className="text-red-300">{personaError}</span>
+              </div>
+            )}
+
+            <button
+              onClick={handleGeneratePersonas}
+              disabled={generatingPersonas || (!hasCustomerData && !hasReviewData)}
+              className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 text-white py-4 rounded-lg hover:from-yellow-600 hover:to-orange-600 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg"
+            >
+              {generatingPersonas ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  ペルソナを生成中...（30秒ほどかかります）
+                </>
+              ) : personas.length > 0 ? (
+                <>
+                  <RefreshCw className="w-6 h-6" />
+                  ペルソナを再生成
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-6 h-6" />
+                  ペルソナを生成する
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 生成されたペルソナ表示セクション */}
+          {personas.length > 0 && (
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <Users className="w-6 h-6 text-cyan-400" />
+                <h3 className="text-2xl font-bold text-white">生成されたペルソナ</h3>
+                <span className="ml-auto text-sm text-slate-400">
+                  {personas.length}人のペルソナ
+                </span>
+              </div>
+
+              <p className="text-slate-400 mb-8">
+                分析データに基づいて生成された、ターゲット顧客の代表的なペルソナです。
+                各ペルソナの右上にある<Edit3 className="w-4 h-4 inline mx-1 text-slate-400" />ボタンで修正できます。
+              </p>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {personas.map((persona, index) => (
+                  <PersonaCard
+                    key={index}
+                    persona={persona}
+                    index={index}
+                    onEdit={handleEditPersona}
+                    isEditing={editingPersonaIndex === index}
+                  />
+                ))}
               </div>
             </div>
           )}

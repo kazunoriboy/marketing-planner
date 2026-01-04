@@ -88,7 +88,13 @@ def sample_analysis_session_fixture(session: Session, sample_hotel: Hotel) -> An
         csv_statistics={
             "total_records": 100,
             "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
-            "cancellation_stats": {"cancellation_rate_percent": 15.0}
+            "cancellation_stats": {"cancellation_rate_percent": 15.0},
+            "guest_area_stats": {
+                "top_areas": {"東京都": 30, "神奈川県": 20, "埼玉県": 15},
+                "region_distribution": {"関東": 65, "関西": 20, "その他": 15},
+                "total_unique_areas": 10,
+                "total_records_with_area": 100
+            }
         },
         csv_insights="テスト用のインサイトです。",
         competitors_list={
@@ -100,7 +106,76 @@ def sample_analysis_session_fixture(session: Session, sample_hotel: Hotel) -> An
             "positive_themes": ["温泉が良い", "料理が美味しい"],
             "negative_themes": ["駐車場が狭い"]
         },
-        regional_trends="テスト用の地域トレンド分析です。"
+        regional_trends="テスト用の地域トレンド分析です。",
+        personas=[]  # ペルソナは初期状態では空
+    )
+    session.add(analysis_session)
+    session.commit()
+    session.refresh(analysis_session)
+    return analysis_session
+
+
+@pytest.fixture(name="sample_analysis_session_with_personas")
+def sample_analysis_session_with_personas_fixture(session: Session, sample_hotel: Hotel) -> AnalysisSession:
+    """ペルソナ付きのテスト用サンプル分析セッションを作成"""
+    analysis_session = AnalysisSession(
+        hotel_id=sample_hotel.id,
+        csv_statistics={
+            "total_records": 100,
+            "guest_area_stats": {
+                "top_areas": {"東京都": 30, "神奈川県": 20},
+                "region_distribution": {"関東": 65, "関西": 20}
+            }
+        },
+        csv_insights="テスト用のインサイトです。",
+        reviews_summary={
+            "positive_themes": ["温泉が良い"],
+            "negative_themes": ["駐車場が狭い"]
+        },
+        personas=[
+            {
+                "name": "田中花子",
+                "age_range": "30代後半",
+                "gender": "女性",
+                "location": "東京都世田谷区",
+                "occupation": "会社員（マーケティング）",
+                "travel_purpose": "週末リフレッシュ",
+                "values": ["温泉でゆっくり", "美味しい料理"],
+                "budget_range": "1泊2万〜3万円",
+                "information_source": ["じゃらん", "Instagram"],
+                "needs": ["清潔感のある部屋", "地元食材を使った料理"],
+                "pain_points": ["平日は忙しい"],
+                "description": "テスト用ペルソナ1の説明"
+            },
+            {
+                "name": "佐藤太郎",
+                "age_range": "50代前半",
+                "gender": "男性",
+                "location": "神奈川県横浜市",
+                "occupation": "会社役員",
+                "travel_purpose": "夫婦旅行",
+                "values": ["上質なサービス", "静かな環境"],
+                "budget_range": "1泊3万〜5万円",
+                "information_source": ["楽天トラベル", "口コミ"],
+                "needs": ["プライベート感", "記念日対応"],
+                "pain_points": ["混雑を避けたい"],
+                "description": "テスト用ペルソナ2の説明"
+            },
+            {
+                "name": "山田美咲",
+                "age_range": "20代後半",
+                "gender": "女性",
+                "location": "埼玉県さいたま市",
+                "occupation": "看護師",
+                "travel_purpose": "女子旅",
+                "values": ["コスパ", "SNS映え"],
+                "budget_range": "1泊1万〜1.5万円",
+                "information_source": ["Instagram", "TikTok"],
+                "needs": ["フォトスポット", "アメニティ充実"],
+                "pain_points": ["シフト制で予定が立てにくい"],
+                "description": "テスト用ペルソナ3の説明"
+            }
+        ]
     )
     session.add(analysis_session)
     session.commit()

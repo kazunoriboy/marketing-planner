@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send, MessageSquare, BookOpen, ChevronUp, Sparkles, ListChecks } from "lucide-react";
+import { Lightbulb, FileText, Loader2, Trash2, CheckCircle, Clock, Plus, Users, DollarSign, Gift, Target, Globe, Pencil, X, Send, MessageSquare, BookOpen, ChevronUp, Sparkles, ListChecks, User, AlertCircle, Info } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, MarketingPlan, AnalysisSession, OperationManual, OperationChatMessage, ManualContent } from "@/lib/api";
+import { marketingApi, MarketingPlan, AnalysisSession, OperationManual, OperationChatMessage, ManualContent, Persona } from "@/lib/api";
 
 // セクションの型
 type EditableSection = "concept" | "target_audience" | "price_range" | "benefits";
@@ -51,10 +51,12 @@ export default function PlannerPage() {
   const { hotel, hotelId } = useHotel();
   const [session, setSession] = useState<AnalysisSession | null>(null);
   const [plans, setPlans] = useState<MarketingPlan[]>([]);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [numPlans, setNumPlans] = useState(3);
   const [selectedPlan, setSelectedPlan] = useState<MarketingPlan | null>(null);
+  const [selectedPersonaIndex, setSelectedPersonaIndex] = useState<number | null>(null);
   
   // セクション編集用のstate
   const [editingSection, setEditingSection] = useState<EditableSection | null>(null);
@@ -74,12 +76,16 @@ export default function PlannerPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [sessionData, plansData] = await Promise.all([
+        const [sessionData, plansData, personasData] = await Promise.all([
           marketingApi.getAnalysisSession(hotelId),
           marketingApi.listPlans(hotelId),
+          marketingApi.getPersonas(hotelId).catch(() => null),
         ]);
         setSession(sessionData);
         setPlans(plansData);
+        if (personasData?.personas) {
+          setPersonas(personasData.personas);
+        }
       } catch (error) {
         console.error("Failed to load data:", error);
       } finally {
@@ -92,7 +98,12 @@ export default function PlannerPage() {
   const handleGeneratePlans = async () => {
     setGenerating(true);
     try {
-      const newPlans = await marketingApi.generatePlans(hotelId, numPlans);
+      // ペルソナが選択されている場合は、そのペルソナに対してプランを生成
+      const newPlans = await marketingApi.generatePlans(
+        hotelId, 
+        numPlans, 
+        selectedPersonaIndex ?? undefined
+      );
       setPlans((prev) => [...newPlans, ...prev]);
     } catch (error) {
       console.error("Plan generation failed:", error);
@@ -250,6 +261,8 @@ export default function PlannerPage() {
     (session?.csv_statistics && Object.keys(session.csv_statistics).length > 0) ||
     (session?.competitors_list && Object.keys(session.competitors_list).length > 0)
   );
+  
+  const hasPersonas = personas.length > 0;
 
   return (
     <section className="animate-fadeIn">
@@ -279,6 +292,84 @@ export default function PlannerPage() {
                 </p>
               ) : (
                 <>
+                  {/* ペルソナ選択UI */}
+                  {hasPersonas ? (
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Users className="w-5 h-5 text-purple-400" />
+                        <span className="text-purple-300 font-semibold text-sm">ペルソナを選択</span>
+                      </div>
+                      <p className="text-slate-400 text-xs mb-3">
+                        ターゲットとなるペルソナを選んでください。選択したペルソナに刺さる複数のプランを生成します。
+                      </p>
+                      <div className="space-y-2">
+                        {personas.map((persona, idx) => (
+                          <button 
+                            key={idx}
+                            onClick={() => setSelectedPersonaIndex(selectedPersonaIndex === idx ? null : idx)}
+                            className={`w-full text-left p-3 rounded-lg border transition-all ${
+                              selectedPersonaIndex === idx
+                                ? "bg-gradient-to-r from-purple-500/20 to-cyan-500/20 border-purple-500/50"
+                                : "bg-white/5 border-white/10 hover:bg-white/10"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                selectedPersonaIndex === idx
+                                  ? "bg-purple-500/30"
+                                  : "bg-white/10"
+                              }`}>
+                                <User className={`w-4 h-4 ${
+                                  selectedPersonaIndex === idx
+                                    ? "text-purple-300"
+                                    : "text-slate-400"
+                                }`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`font-medium ${
+                                    selectedPersonaIndex === idx
+                                      ? "text-white"
+                                      : "text-slate-200"
+                                  }`}>{persona.name}</span>
+                                  <span className="text-xs text-slate-500">{persona.age_range}</span>
+                                </div>
+                                <p className="text-xs text-slate-400 truncate mt-0.5">
+                                  {persona.travel_purpose}
+                                </p>
+                              </div>
+                              {selectedPersonaIndex === idx && (
+                                <CheckCircle className="w-5 h-5 text-purple-400 flex-shrink-0" />
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      
+                      {selectedPersonaIndex !== null && (
+                        <div className="mt-3 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                          <p className="text-xs text-purple-300 flex items-center gap-1">
+                            <Info className="w-3 h-3" />
+                            「{personas[selectedPersonaIndex].name}」に刺さる{numPlans}つの異なる切り口のプランを生成します
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mb-4 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-yellow-300 text-sm font-medium">ペルソナが未設定です</p>
+                          <p className="text-slate-400 text-xs mt-1">
+                            「顧客を知る」でペルソナを生成すると、各ペルソナに最適化されたプランを提案できます
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 生成数選択 */}
                   <div className="flex items-center gap-4 mb-4">
                     <label className="text-slate-300 text-sm">生成数：</label>
                     <select
@@ -294,14 +385,26 @@ export default function PlannerPage() {
 
                   <button
                     onClick={handleGeneratePlans}
-                    disabled={generating}
-                    className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white py-3 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                    disabled={generating || (hasPersonas && selectedPersonaIndex === null)}
+                    className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white py-3 rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {generating ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
                         生成中...
                       </>
+                    ) : hasPersonas ? (
+                      selectedPersonaIndex !== null ? (
+                        <>
+                          <Sparkles className="w-5 h-5" />
+                          {numPlans}件のプランを生成
+                        </>
+                      ) : (
+                        <>
+                          <User className="w-5 h-5" />
+                          ペルソナを選択してください
+                        </>
+                      )
                     ) : (
                       <>
                         <Plus className="w-5 h-5" />

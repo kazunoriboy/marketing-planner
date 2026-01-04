@@ -605,6 +605,46 @@ export interface ReviewAnalysisResponse {
   analyzed_at: string;
 }
 
+// ペルソナ関連の型
+export interface Persona {
+  name: string;
+  age_range: string;
+  gender: string;
+  location: string;  // 住んでいるところ
+  occupation: string;
+  travel_purpose: string;
+  values: string[];
+  budget_range: string;
+  information_source: string[];
+  needs: string[];
+  pain_points: string[];
+  description: string;
+}
+
+export interface PersonaGenerationResponse {
+  session_id: number;
+  personas: Persona[];
+  generated_at: string;
+}
+
+export interface PersonasResponse {
+  session_id: number;
+  personas: Persona[];
+  updated_at: string | null;
+}
+
+export interface PersonaEditRequest {
+  persona_index: number;
+  instruction: string;
+}
+
+export interface PersonaEditResponse {
+  session_id: number;
+  persona: Persona;
+  persona_index: number;
+  updated_at: string;
+}
+
 export const marketingApi = {
   // ============================================
   // 分析 API
@@ -736,15 +776,64 @@ export const marketingApi = {
   },
 
   // ============================================
+  // ペルソナ API
+  // ============================================
+
+  /**
+   * ペルソナを生成
+   */
+  async generatePersonas(hotelId: number, numPersonas: number = 3): Promise<PersonaGenerationResponse> {
+    return apiRequest<PersonaGenerationResponse>(
+      `/api/analysis/hotels/${hotelId}/personas/generate?num_personas=${numPersonas}`,
+      {
+        method: "POST",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 生成済みのペルソナを取得
+   */
+  async getPersonas(hotelId: number): Promise<PersonasResponse> {
+    return apiRequest<PersonasResponse>(
+      `/api/analysis/hotels/${hotelId}/personas`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * ペルソナを修正
+   */
+  async editPersona(hotelId: number, personaIndex: number, instruction: string): Promise<PersonaEditResponse> {
+    return apiRequest<PersonaEditResponse>(
+      `/api/analysis/hotels/${hotelId}/personas/${personaIndex}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ persona_index: personaIndex, instruction }),
+      },
+      "facility"
+    );
+  },
+
+  // ============================================
   // プランニング API
   // ============================================
 
   /**
    * マーケティングプランを生成
+   * @param hotelId 施設ID
+   * @param numPlans 生成するプラン数
+   * @param personaIndex 特定のペルソナに対して生成する場合のインデックス（0始まり）
    */
-  async generatePlans(hotelId: number, numPlans: number = 3): Promise<MarketingPlan[]> {
+  async generatePlans(hotelId: number, numPlans: number = 3, personaIndex?: number): Promise<MarketingPlan[]> {
+    let url = `/api/planning/hotels/${hotelId}/generate?num_plans=${numPlans}`;
+    if (personaIndex !== undefined) {
+      url += `&persona_index=${personaIndex}`;
+    }
     return apiRequest<MarketingPlan[]>(
-      `/api/planning/hotels/${hotelId}/generate?num_plans=${numPlans}`,
+      url,
       {
         method: "POST",
       },

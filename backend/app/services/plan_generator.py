@@ -169,7 +169,8 @@ class PlanGenerator:
         self,
         analysis_session: AnalysisSession,
         num_plans: int,
-        llm_client
+        llm_client,
+        persona_index: int = None
     ) -> List[Dict]:
         """
         分析結果からマーケティングプランを生成
@@ -178,20 +179,33 @@ class PlanGenerator:
             analysis_session: 分析セッション
             num_plans: 生成するプラン数
             llm_client: LLMクライアント
+            persona_index: 特定のペルソナを指定する場合のインデックス（0始まり）
         
         Returns:
             プラン情報のリスト
         """
-        # 分析結果をまとめる
-        analysis_summary = self._create_analysis_summary(analysis_session)
+        # 分析結果をまとめる（ペルソナ情報は後で個別に追加）
+        analysis_summary = self._create_analysis_summary(analysis_session, exclude_personas=True)
+        
+        # ペルソナ情報を取得
+        personas = analysis_session.personas if analysis_session.personas else []
+        
+        # 特定のペルソナが指定されている場合
+        target_persona = None
+        if persona_index is not None and personas and 0 <= persona_index < len(personas):
+            target_persona = personas[persona_index]
         
         # プラン生成プロンプトを作成
-        prompt = self._create_plan_generation_prompt(analysis_summary, num_plans)
+        prompt = self._create_plan_generation_prompt(
+            analysis_summary, 
+            num_plans, 
+            target_persona=target_persona
+        )
         
         # LLMでプランを生成
         response = await llm_client.generate_structured_output(
             user_prompt=prompt,
-            system_prompt=self._get_system_prompt(),
+            system_prompt=self._get_system_prompt(has_persona=target_persona is not None),
             max_tokens=8000
         )
         
@@ -200,7 +214,7 @@ class PlanGenerator:
         
         return plans
     
-    def _create_analysis_summary(self, session: AnalysisSession) -> str:
+    def _create_analysis_summary(self, session: AnalysisSession, exclude_personas: bool = False) -> str:
         """分析結果をサマリー化"""
         summary_parts = []
         
@@ -224,22 +238,72 @@ class PlanGenerator:
             summary_parts.append("\n【地域トレンド】")
             summary_parts.append(session.regional_trends)
         
+        # ペルソナ情報（exclude_personasがTrueの場合はスキップ）
+        if not exclude_personas and session.personas and len(session.personas) > 0:
+            summary_parts.append("\n【ターゲットペルソナ】")
+            summary_parts.append("以下のペルソナが特定されています。各ペルソナに対して効果的なプランを提案してください。")
+            for i, persona in enumerate(session.personas, 1):
+                summary_parts.append(f"\n--- ペルソナ{i}: {persona.get('name', f'顧客像{i}')} ---")
+                summary_parts.append(json.dumps(persona, ensure_ascii=False, indent=2))
+        
         return "\n".join(summary_parts)
     
-    def _create_plan_generation_prompt(self, analysis_summary: str, num_plans: int) -> str:
+    def _create_plan_generation_prompt(self, analysis_summary: str, num_plans: int, target_persona: dict = None) -> str:
         """プラン生成プロンプトを作成"""
+        
+        # 特定のペルソナが指定されている場合
+        if target_persona:
+            persona_name = target_persona.get('name', 'ターゲット顧客')
+            persona_json = json.dumps(target_persona, ensure_ascii=False, indent=2)
+            
+            persona_instruction = f"""
+【ターゲットペルソナ】
+以下のペルソナに対して、{num_plans}つの異なる切り口でマーケティングプランを提案してください。
+
+{persona_json}
+
+【プラン生成のポイント】
+このペルソナ（{persona_name}）に刺さる{num_plans}つの異なるアプローチを提案してください：
+
+1. **切り口を変える**: 同じペルソナでも、異なる訴求軸でアプローチできます
+   - 価格・お得感訴求（コスパ重視）
+   - 体験価値訴求（特別な体験・思い出）
+   - 利便性訴求（手軽さ・時短）
+   - 癒し・リラックス訴求
+   - 特別感・プレミアム訴求
+   - アクティビティ・アドベンチャー訴求
+   
+2. **ペルソナの異なるニーズに注目**: 
+   - 「旅行目的」から導かれるプラン
+   - 「悩み・課題（pain_points）」を解決するプラン
+   - 「重視すること（values）」を満たすプラン
+
+3. **価格帯を変える**: ペルソナの予算帯の中で、エントリー〜プレミアムまで幅を持たせる
+
+4. **特典・サービスを変える**: 同じコンセプトでも、異なる特典パッケージを用意
+
+各プランは明確に差別化し、このペルソナが「どのプランも魅力的だけど、どれにしよう？」と迷うような選択肢を提供してください。
+"""
+        else:
+            persona_instruction = f"""
+{num_plans}つの具体的なマーケティングプランを提案してください。
+各プランは差別化され、異なるターゲット層や戦略を持つようにしてください。
+"""
+        
         return f"""
-以下の分析結果に基づいて、{num_plans}つの具体的なマーケティングプランを提案してください。
+以下の分析結果に基づいて、マーケティングプランを提案してください。
 
 {analysis_summary}
+
+{persona_instruction}
 
 各プランについて、以下の項目を含むJSON形式で出力してください：
 
 {{
     "plans": [
         {{
-            "plan_name": "プラン名",
-            "concept": "プランのコンセプト（200文字程度）",
+            "plan_name": "プラン名（訴求ポイントや体験価値を表す魅力的な名前。例：『週末リフレッシュステイ』『贅沢おこもりプラン』『アクティブ満喫プラン』など）",
+            "concept": "プランのコンセプト（200文字程度、ターゲットの課題解決を明確に）",
             "target_audience": {{
                 "age_range": "対象年齢層",
                 "demographics": "デモグラフィック特性",
@@ -272,15 +336,41 @@ class PlanGenerator:
     ]
 }}
 
-各プランは差別化され、異なるターゲット層や戦略を持つようにしてください。
+【プラン名の注意事項】
+- ペルソナの名前（人名）は絶対にプラン名に含めないでください
+- 代わりに、そのペルソナが求める体験や価値を表現したキャッチーな名前をつけてください
+- 例：「癒しの温泉リトリート」「アクティブ家族旅プラン」「記念日を彩るプレミアムステイ」など
 """
     
-    def _get_system_prompt(self) -> str:
+    def _get_system_prompt(self, has_persona: bool = False) -> str:
         """システムプロンプトを取得"""
-        return """あなたは宿泊業界の経験豊富なマーケティングストラテジストです。
+        base_prompt = """あなたは宿泊業界の経験豊富なマーケティングストラテジストです。
 データに基づいた実践的で、すぐに実行可能なマーケティングプランを提案してください。
 3C分析（Customer, Competitor, Company）とPEST分析（Political, Economic, Social, Technological）を
 活用した戦略的なプランを作成してください。"""
+        
+        if has_persona:
+            persona_instruction = """
+
+【単一ペルソナに対する複数プラン戦略】
+- 指定されたペルソナに対して、複数の異なる切り口でプランを提案してください
+- 同じペルソナでも、訴求ポイントやアプローチ方法によって響くプランは異なります
+- 例えば「忙しいビジネスパーソン」に対しても:
+  * 「短時間で最大限リフレッシュ」という時短訴求
+  * 「贅沢な自分へのご褒美」というプレミアム訴求
+  * 「コスパ良く疲れを癒す」というお得感訴求
+  など、異なるアプローチが可能です
+- ペルソナの悩み（pain_points）それぞれに対応するプランを考えてください
+- 価格帯にも幅を持たせ、選択肢を提供してください
+
+【プラン名の命名ルール】
+- プラン名にペルソナの名前（人名）は絶対に含めないでください
+- 「〇〇さん向けプラン」のような名前は禁止です
+- 代わりに、体験価値や訴求ポイントを表す魅力的な名前をつけてください
+  例：「癒しの温泉リトリート」「お得に満喫プラン」「プレミアムおこもりステイ」など"""
+            return base_prompt + persona_instruction
+        
+        return base_prompt
     
     def _parse_plans_response(self, response: str) -> List[Dict]:
         """LLMのレスポンスからプラン情報を抽出"""
