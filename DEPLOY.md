@@ -1,6 +1,6 @@
-# EC2 デプロイ手順書
+# EC2 デプロイ手順書（Amazon Linux 2023）
 
-このドキュメントでは、Marketing Planner アプリケーションを AWS EC2 に Docker Compose を使用してデプロイする手順を説明します。
+このドキュメントでは、Marketing Planner アプリケーションを AWS EC2 (Amazon Linux 2023) に Docker Compose を使用してデプロイする手順を説明します。
 
 **デプロイ先ドメイン**: `ai-marketing.poseidon-inc.com`
 
@@ -25,7 +25,7 @@ ai-marketing.poseidon-inc.com → EC2のパブリックIP
 1. AWS コンソールで EC2 ダッシュボードを開く
 2. **インスタンスを起動** をクリック
 3. 以下の設定を推奨:
-   - **AMI**: Ubuntu Server 24.04 LTS
+   - **AMI**: Amazon Linux 2023
    - **インスタンスタイプ**: t3.medium 以上（メモリ 4GB 以上推奨）
    - **ストレージ**: 30GB 以上（画像生成機能を使用する場合は 50GB 推奨）
    - **キーペア**: 新規作成または既存のキーペアを選択
@@ -45,43 +45,56 @@ ai-marketing.poseidon-inc.com → EC2のパブリックIP
 ### 1. SSH で接続
 
 ```bash
-ssh -i your-key.pem ubuntu@EC2のパブリックIP
+ssh -i your-key.pem ec2-user@EC2のパブリックIP
 ```
 
 ### 2. システムの更新
 
 ```bash
-sudo apt update && sudo apt upgrade -y
+sudo dnf update -y
 ```
 
 ### 3. Docker のインストール
 
 ```bash
-# 必要なパッケージをインストール
-sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
-
-# Docker の GPG キーを追加
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-
-# Docker リポジトリを追加
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
 # Docker をインストール
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo dnf install -y docker
 
-# 現在のユーザーを docker グループに追加
-sudo usermod -aG docker $USER
+# Docker サービスを起動・自動起動設定
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# ec2-user を docker グループに追加
+sudo usermod -aG docker ec2-user
 
 # グループを反映（再ログインでも可）
 newgrp docker
 ```
 
-### 4. Docker の動作確認
+### 4. Docker Compose のインストール
+
+```bash
+# Docker Compose プラグインをインストール
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# 動作確認
+docker compose version
+```
+
+### 5. Git のインストール
+
+```bash
+sudo dnf install -y git
+```
+
+### 6. 動作確認
 
 ```bash
 docker --version
 docker compose version
+git --version
 ```
 
 ## 📦 アプリケーションのデプロイ
@@ -102,6 +115,9 @@ cp backend/env.example backend/.env
 
 # データベース環境変数
 cp env.db.example .env.db
+
+# フロントエンド環境変数（空でOK、ビルド引数で設定済み）
+touch frontend/.env.local
 ```
 
 #### backend/.env を編集
@@ -109,6 +125,8 @@ cp env.db.example .env.db
 ```bash
 nano backend/.env
 ```
+
+> **nano がない場合**: `sudo dnf install -y nano` でインストール、または `vi` を使用
 
 以下の値を設定:
 
@@ -165,14 +183,20 @@ docker compose -f docker-compose.prod.yml up -d
 #### Step 2: certbotでSSL証明書を取得
 
 ```bash
-# certbot をインストール
-sudo apt install -y certbot
+# certbot をインストール（AL2023）
+sudo dnf install -y certbot
 
 # webroot認証用ディレクトリを作成
 sudo mkdir -p /var/www/certbot
 
-# 証明書を取得
-sudo certbot certonly --webroot -w /var/www/certbot -d ai-marketing.poseidon-inc.com
+# 一時的にNginxを停止してスタンドアロンモードで証明書取得
+docker compose -f docker-compose.prod.yml stop nginx
+
+# 証明書を取得（スタンドアロンモード）
+sudo certbot certonly --standalone -d ai-marketing.poseidon-inc.com
+
+# または webroot モードを使用する場合（Nginxが動いている状態で）
+# sudo certbot certonly --webroot -w /var/www/certbot -d ai-marketing.poseidon-inc.com
 ```
 
 #### Step 3: 証明書をコピー
@@ -181,17 +205,13 @@ sudo certbot certonly --webroot -w /var/www/certbot -d ai-marketing.poseidon-inc
 # SSL証明書をプロジェクトにコピー
 sudo cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/fullchain.pem nginx/ssl/
 sudo cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/privkey.pem nginx/ssl/
-sudo chown -R $USER:$USER nginx/ssl
+sudo chown -R ec2-user:ec2-user nginx/ssl
 ```
 
 #### Step 4: HTTPS設定に切り替え
 
 ```bash
 # HTTPS用の設定ファイルをコピー
-cp nginx/nginx.conf nginx/nginx.http.conf.bak  # バックアップ
-
-# nginx.confの内容を本番用に差し替え（元のnginx.confはHTTPS対応済み）
-# 以下のファイルをnginx/nginx.confにコピー
 cat > nginx/nginx.conf << 'EOF'
 events {
     worker_connections 1024;
@@ -284,8 +304,8 @@ http {
 }
 EOF
 
-# Nginx を再起動
-docker compose -f docker-compose.prod.yml restart nginx
+# 全サービスを起動
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ### 4. 初期管理者ユーザーの作成
@@ -305,7 +325,6 @@ docker compose -f docker-compose.prod.yml logs -f
 ```
 
 ブラウザでアクセス:
-- **フロントエンド**: https://ai-marketing.poseidon-inc.com
 - **バックエンドAPI**: https://ai-marketing.poseidon-inc.com/api/docs
 
 ## 🔄 SSL証明書の自動更新
@@ -314,14 +333,14 @@ Let's Encrypt の証明書は90日で期限切れになります。自動更新�
 
 ```bash
 # crontab を編集
-sudo crontab -e
+crontab -e
 ```
 
 以下を追加:
 
 ```cron
 # 毎月1日と15日の午前3時に証明書を更新
-0 3 1,15 * * certbot renew --quiet && cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/fullchain.pem /home/ubuntu/marketing-planner/nginx/ssl/ && cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/privkey.pem /home/ubuntu/marketing-planner/nginx/ssl/ && docker compose -f /home/ubuntu/marketing-planner/docker-compose.prod.yml restart nginx
+0 3 1,15 * * sudo certbot renew --quiet && sudo cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/fullchain.pem /home/ec2-user/marketing-planner/nginx/ssl/ && sudo cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/privkey.pem /home/ec2-user/marketing-planner/nginx/ssl/ && sudo chown ec2-user:ec2-user /home/ec2-user/marketing-planner/nginx/ssl/* && docker compose -f /home/ec2-user/marketing-planner/docker-compose.prod.yml restart nginx
 ```
 
 ## 🔄 更新・再デプロイ
@@ -452,44 +471,53 @@ docker stats
 
 ---
 
-## 🚀 クイックスタートコマンド一覧
+## 🚀 クイックスタートコマンド一覧（AL2023）
 
 ```bash
 # 1. EC2にSSH接続
-ssh -i your-key.pem ubuntu@EC2のIP
+ssh -i your-key.pem ec2-user@EC2のIP
 
-# 2. Dockerインストール（初回のみ）
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
+# 2. システム更新とDockerインストール（初回のみ）
+sudo dnf update -y
+sudo dnf install -y docker git
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
 newgrp docker
 
-# 3. プロジェクトクローン
+# 3. Docker Composeインストール
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# 4. プロジェクトクローン
 git clone https://github.com/your-username/marketing-planner.git
 cd marketing-planner
 
-# 4. 環境変数設定
+# 5. 環境変数設定
 cp backend/env.example backend/.env
 cp env.db.example .env.db
+touch frontend/.env.local
 nano backend/.env  # 編集
 nano .env.db       # 編集
 
-# 5. 初期起動（HTTP）
+# 6. 初期起動（HTTP）
 cp nginx/nginx.initial.conf nginx/nginx.conf
+mkdir -p nginx/ssl
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 
-# 6. SSL証明書取得
-sudo apt install -y certbot
-sudo mkdir -p /var/www/certbot
-sudo certbot certonly --webroot -w /var/www/certbot -d ai-marketing.poseidon-inc.com
+# 7. SSL証明書取得
+sudo dnf install -y certbot
+docker compose -f docker-compose.prod.yml stop nginx
+sudo certbot certonly --standalone -d ai-marketing.poseidon-inc.com
 sudo cp /etc/letsencrypt/live/ai-marketing.poseidon-inc.com/*.pem nginx/ssl/
-sudo chown -R $USER:$USER nginx/ssl
+sudo chown -R ec2-user:ec2-user nginx/ssl
 
-# 7. HTTPS有効化
-# nginx/nginx.conf をHTTPS版に更新（上記参照）
-docker compose -f docker-compose.prod.yml restart nginx
+# 8. HTTPS有効化（nginx/nginx.conf を上記の内容に更新）
+docker compose -f docker-compose.prod.yml up -d
 
-# 8. 管理者作成
+# 9. 管理者作成
 docker compose -f docker-compose.prod.yml exec backend python -m app.scripts.seed_admin
 ```
 
