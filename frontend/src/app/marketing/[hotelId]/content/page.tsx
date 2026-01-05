@@ -22,7 +22,7 @@ export default function ContentPage() {
     generate_lp: true,
     generate_images: true,
     generate_ad_copy: true,
-    generate_ota_text: false,  // OTAテキスト（じゃらん、楽天トラベル向け）
+    generate_ota_text: true,  // OTAテキスト（じゃらん、楽天トラベル向け）
   });
   
   // プレビュー関連のstate

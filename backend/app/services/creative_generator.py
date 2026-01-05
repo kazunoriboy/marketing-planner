@@ -4,6 +4,7 @@ import os
 import uuid
 from typing import Dict, Optional, Tuple
 from app.models import MarketingPlan
+from app.core.language import get_language_instruction, get_language_name, is_japanese
 
 
 class CreativeGenerator:
@@ -115,10 +116,21 @@ class CreativeGenerator:
         Returns:
             (ソースコード, 生成プロンプト) のタプル
         """
-        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls)
+        # ターゲット言語を取得
+        target_language = self._get_target_language(marketing_plan)
         
-        system_prompt = """あなたは宿泊業界専門の経験豊富なWebデザイナー兼フロントエンドエンジニアです。
+        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls, target_language)
+        
+        # 言語に応じたシステムプロンプトを生成
+        language_instruction = get_language_instruction(target_language)
+        language_name = get_language_name(target_language)
+        
+        system_prompt = f"""あなたは宿泊業界専門の経験豊富なWebデザイナー兼フロントエンドエンジニアです。
 高級感があり、信頼性を感じさせる宿泊施設のランディングページを作成してください。
+
+【重要：出力言語】
+{language_instruction}
+LPのテキストコンテンツ（見出し、本文、ボタンテキストなど）はすべて{language_name}で記述してください。
 
 【重要なデザイン原則】
 1. 色は指定されたカラーパレットのみを使用すること（3色以内）
@@ -141,6 +153,20 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
         code = self._extract_code_from_response(response)
         
         return code, prompt
+    
+    def _get_target_language(self, marketing_plan: MarketingPlan) -> str:
+        """
+        マーケティングプランからターゲット言語を取得
+        
+        Args:
+            marketing_plan: マーケティングプラン
+        
+        Returns:
+            言語コード（デフォルト: "ja"）
+        """
+        if marketing_plan.target_audience and isinstance(marketing_plan.target_audience, dict):
+            return marketing_plan.target_audience.get('target_language', 'ja')
+        return 'ja'
     
     async def _generate_images_with_configs(
         self,
@@ -349,10 +375,19 @@ The image should make viewers want to book immediately.""",
         Returns:
             (広告コピー辞書, 生成プロンプト) のタプル
         """
-        prompt = self._create_ad_copy_generation_prompt(marketing_plan)
+        # ターゲット言語を取得
+        target_language = self._get_target_language(marketing_plan)
+        language_instruction = get_language_instruction(target_language)
+        language_name = get_language_name(target_language)
         
-        system_prompt = """あなたは宿泊業界の経験豊富なコピーライターです。
-魅力的で効果的な広告コピーを作成してください。"""
+        prompt = self._create_ad_copy_generation_prompt(marketing_plan, target_language)
+        
+        system_prompt = f"""あなたは宿泊業界の経験豊富なコピーライターです。
+魅力的で効果的な広告コピーを作成してください。
+
+【重要：出力言語】
+{language_instruction}
+すべての広告コピーを{language_name}で作成してください。"""
         
         response = await llm_client.generate_structured_output(
             user_prompt=prompt,
@@ -370,9 +405,14 @@ The image should make viewers want to book immediately.""",
         plan: MarketingPlan, 
         cv_url: str = None,
         hotel_info: Dict = None,
-        image_urls: Dict[str, str] = None
+        image_urls: Dict[str, str] = None,
+        target_language: str = "ja"
     ) -> str:
         """LP生成プロンプトを作成"""
+        
+        # 言語指示を作成
+        language_instruction = get_language_instruction(target_language)
+        language_name = get_language_name(target_language)
         
         # ホテル情報セクション
         hotel_section = ""
@@ -493,6 +533,12 @@ The image should make viewers want to book immediately.""",
 - 外部ライブラリやCDNは使用しない
 - レスポンシブデザイン（768px以下でモバイル対応）
 
+【重要：出力言語】
+{language_instruction}
+- LPのテキストコンテンツ（見出し、本文、ボタンテキスト、キャッチコピーなど）はすべて{language_name}で記述してください
+- 施設名やプラン名も{language_name}で適切に翻訳・表現してください
+- CTAボタンのテキストも{language_name}にしてください（例: 英語なら "Book Now"、中国語なら "立即預約" など）
+
 完全に動作する単一のHTMLファイルを生成してください。
 必ず<!DOCTYPE html>から始まる完全なHTMLドキュメントを出力してください。
 """
@@ -527,10 +573,17 @@ The image should make viewers want to book immediately.""",
 }}
 """
     
-    def _create_ad_copy_generation_prompt(self, plan: MarketingPlan) -> str:
+    def _create_ad_copy_generation_prompt(self, plan: MarketingPlan, target_language: str = "ja") -> str:
         """広告コピー生成プロンプトを作成"""
+        language_instruction = get_language_instruction(target_language)
+        language_name = get_language_name(target_language)
+        
         return f"""
 以下のマーケティングプランに基づいて、複数の広告コピーを作成してください。
+
+【重要：出力言語】
+{language_instruction}
+すべての広告コピーを{language_name}で作成してください。
 
 【プラン情報】
 プラン名: {plan.plan_name}
@@ -538,27 +591,27 @@ The image should make viewers want to book immediately.""",
 ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False)}
 特典: {json.dumps(plan.benefits, ensure_ascii=False)}
 
-以下のJSON形式で出力してください：
+以下のJSON形式で出力してください（すべて{language_name}で記述）：
 {{
     "headline": {{
-        "main": "メインキャッチコピー（30文字以内）",
-        "sub": "サブコピー（50文字以内）"
+        "main": "メインキャッチコピー",
+        "sub": "サブコピー"
     }},
     "google_ads": {{
-        "title_1": "Google広告タイトル1（30文字以内）",
-        "title_2": "Google広告タイトル2（30文字以内）",
-        "description": "説明文（90文字以内）"
+        "title_1": "Google広告タイトル1",
+        "title_2": "Google広告タイトル2",
+        "description": "説明文"
     }},
     "facebook_ads": {{
-        "primary_text": "Facebook広告メインテキスト（125文字以内）",
-        "headline": "見出し（40文字以内）",
-        "description": "説明文（30文字以内）"
+        "primary_text": "Facebook広告メインテキスト",
+        "headline": "見出し",
+        "description": "説明文"
     }},
     "instagram_caption": {{
-        "main_text": "Instagram投稿テキスト（200文字程度）",
+        "main_text": "Instagram投稿テキスト",
         "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2", "#ハッシュタグ3"]
     }},
-    "email_subject": "メール件名（30文字以内）"
+    "email_subject": "メール件名"
 }}
 """
     
@@ -639,6 +692,8 @@ The image should make viewers want to book immediately.""",
         """
         OTA（じゃらん、楽天トラベル）向けテキストを生成
         
+        ※ OTAは日本国内サービスのため、日本語ターゲット以外の場合はスキップ
+        
         Args:
             marketing_plan: マーケティングプラン
             llm_client: LLMクライアント
@@ -647,17 +702,46 @@ The image should make viewers want to book immediately.""",
         Returns:
             (OTAテキスト辞書, 生成プロンプト) のタプル
         """
+        # ターゲット言語を取得
+        target_language = self._get_target_language(marketing_plan)
+        
+        # 日本語以外のターゲットの場合はスキップ
+        if not is_japanese(target_language):
+            language_name = get_language_name(target_language)
+            skip_message = {
+                "jalan": {
+                    "plan_title": f"※ {language_name}ターゲットのため生成スキップ",
+                    "catch_copy": "OTAは日本国内サービスのため、海外向けプランでは生成されません",
+                    "plan_description": f"このプランのターゲット言語は{language_name}です。じゃらん・楽天トラベルは日本国内向けサービスのため、OTAテキストの生成はスキップされました。\n\n海外向けのOTA（Booking.com、Expedia、Agoda等）への掲載をご検討の場合は、LP・広告コピーを参考に各サイトの形式に合わせてご作成ください。",
+                    "features": ["海外向けプラン", "OTA生成スキップ"]
+                },
+                "rakuten": {
+                    "plan_title": f"※ {language_name}ターゲットのため生成スキップ",
+                    "catch_copy": "OTAは日本国内サービスのため、海外向けプランでは生成されません",
+                    "plan_description": f"このプランのターゲット言語は{language_name}です。じゃらん・楽天トラベルは日本国内向けサービスのため、OTAテキストの生成はスキップされました。\n\n海外向けのOTA（Booking.com、Expedia、Agoda等）への掲載をご検討の場合は、LP・広告コピーを参考に各サイトの形式に合わせてご作成ください。",
+                    "features": ["海外向けプラン", "OTA生成スキップ"]
+                }
+            }
+            return skip_message, f"日本語以外のターゲット（{language_name}）のため、OTAテキスト生成をスキップしました。"
+        
         prompt = self._create_ota_text_generation_prompt(marketing_plan, hotel_info)
         
         system_prompt = """あなたは宿泊業界のOTAマーケティング専門家です。
 じゃらんや楽天トラベルで高い予約率を実現するプラン説明文を作成してください。
+
+【絶対厳守】マークダウン記法の禁止：
+- #, ##, ### などの見出し記法は使用禁止
+- *, **, _ などの強調記法は使用禁止
+- - による箇条書きは使用禁止（代わりに「・」「●」を使用）
+- OTAサイトはプレーンテキストのみ対応のため、上記を厳守してください
 
 重要なポイント：
 - 具体的な体験価値を伝える
 - ターゲット顧客の心に響く表現を使う
 - 特典や差別化ポイントを明確に
 - 季節感や限定感を演出
-- SEOを意識したキーワードを含める"""
+- SEOを意識したキーワードを含める
+- 見出しは【】や◆、箇条書きは・や●を使用"""
         
         response = await llm_client.generate_structured_output(
             user_prompt=prompt,
@@ -689,6 +773,12 @@ The image should make viewers want to book immediately.""",
 ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False)}
 特典: {json.dumps(plan.benefits, ensure_ascii=False)}
 
+【重要：出力形式について】
+- OTAサイトはプレーンテキストのみ対応のため、マークダウン記法（#, *, -, ** など）は絶対に使用しないでください
+- 箇条書きは「・」「●」「◆」「■」などの記号を使用してください
+- 見出しは「【】」や「＜＞」で囲むか、「◎」「★」などの記号を先頭に付けてください
+- 強調は「」や『』で囲んでください
+
 以下のJSON形式で出力してください：
 {{
     "jalan": {{
@@ -709,6 +799,7 @@ The image should make viewers want to book immediately.""",
 1. じゃらん向け：感情に訴える表現、体験価値を重視
 2. 楽天トラベル向け：具体的なスペック・サービス内容を詳細に
 3. 両方：SEOキーワード（温泉、露天風呂、懐石料理、記念日など）を自然に含める
+4. 両方：マークダウン記法は使用せず、プレーンテキストの装飾（「」『』【】・●◆など）を使用
 """
     
     def _parse_ota_text(self, response: str) -> Dict:

@@ -2,6 +2,7 @@ import json
 import re
 from typing import List, Dict, Any, Literal, Optional
 from app.models import AnalysisSession, MarketingPlan, ExistingPlan
+from app.core.language import detect_language_from_location, get_language_name, is_japanese
 
 
 # セクション名の日本語マッピング
@@ -166,7 +167,7 @@ class PlanGenerator:
 """
         
         return f"""
-以下のマーケティングプランを修正してください。
+以下のマーケティングプランを**最小限の変更で**修正してください。
 {context_info}
 【現在のプラン】
 {current_plan_str}
@@ -174,46 +175,55 @@ class PlanGenerator:
 【修正指示】
 「{section_label}」について: {instruction}
 
-【重要な注意事項】
-- 上記の修正指示に基づいて、プラン全体の一貫性を保つように調整してください
-- プラン名、コンセプト、ターゲット顧客、価格帯の根拠、特典など、関連するすべての箇所を修正してください
-- 修正指示に関係のない部分でも、一貫性を保つために必要な調整を行ってください
-- 3C分析とPEST分析も必要に応じて調整してください
-{"- ペルソナや顧客分析の情報が提供されている場合は、それらと整合性のある修正を行ってください" if analysis_context else ""}
-{"- 施設の資産情報が提供されている場合は、実際に提供可能なサービス・設備の範囲内で修正を行ってください" if assets_context else ""}
+【最重要：最小限変更の原則】
+1. 修正指示に直接該当する箇所のみを変更してください
+2. 変更により一貫性が崩れる箇所があれば、その箇所のみ最小限の調整をしてください
+3. 修正指示に関係ない箇所は、上記「現在のプラン」の内容をそのまま使用してください
+
+【変更してはいけないケース】
+- 「より良い表現にする」「ブラッシュアップする」ための変更
+- 修正指示と無関係な箇所の言い回しや文体の変更
+- 修正指示と関係ない情報の追加・削除
+
+【変更が必要なケース】
+- 修正指示で明示的に指定された箇所
+- 変更により矛盾が生じる箇所（例: 食材を変更した場合の価格根拠）
+- 変更により事実と異なる記述になる箇所
+{"- ペルソナ情報との整合性が崩れる箇所のみ" if analysis_context else ""}
+{"- 施設の資産で提供不可能になる箇所のみ" if assets_context else ""}
 
 【出力形式】
-以下のJSON形式で出力してください：
+以下のJSON形式で出力してください。変更不要な箇所は元の値をそのまま使用してください：
 {{
-    "plan_name": "修正後のプラン名",
-    "concept": "修正後のコンセプト（200文字程度）",
+    "plan_name": "（変更必要な場合のみ修正、不要なら元の値をそのまま）",
+    "concept": "（変更必要な場合のみ修正、不要なら元の値をそのまま）",
     "target_audience": {{
-        "age_range": "対象年齢層",
-        "demographics": "デモグラフィック特性",
-        "psychographics": "サイコグラフィック特性",
-        "needs": ["ニーズ1", "ニーズ2"]
+        "age_range": "（変更不要なら元の値をそのまま）",
+        "demographics": "（変更不要なら元の値をそのまま）",
+        "psychographics": "（変更不要なら元の値をそのまま）",
+        "needs": ["（変更不要なら元の値をそのまま）"]
     }},
     "price_range": {{
-        "min": 最低価格,
-        "max": 最高価格,
-        "recommended": 推奨価格,
-        "rationale": "価格設定の根拠"
+        "min": （変更不要なら元の値をそのまま）,
+        "max": （変更不要なら元の値をそのまま）,
+        "recommended": （変更不要なら元の値をそのまま）,
+        "rationale": "（変更必要な場合のみ修正、不要なら元の値をそのまま）"
     }},
     "benefits": {{
-        "main_benefits": ["特典1", "特典2", "特典3"],
-        "unique_value": "独自の価値提案",
-        "amenities": ["アメニティ1", "アメニティ2"]
+        "main_benefits": ["（変更不要なら元の値をそのまま）"],
+        "unique_value": "（変更必要な場合のみ修正、不要なら元の値をそのまま）",
+        "amenities": ["（変更不要なら元の値をそのまま）"]
     }},
     "strategy_3c": {{
-        "customer": "顧客分析",
-        "competitor": "競合分析",
-        "company": "自社の強み"
+        "customer": "（変更不要なら元の値をそのまま）",
+        "competitor": "（変更不要なら元の値をそのまま）",
+        "company": "（変更必要な場合のみ修正、不要なら元の値をそのまま）"
     }},
     "strategy_pest": {{
-        "political": "政治的要因",
-        "economic": "経済的要因",
-        "social": "社会的要因",
-        "technological": "技術的要因"
+        "political": "（変更不要なら元の値をそのまま）",
+        "economic": "（変更不要なら元の値をそのまま）",
+        "social": "（変更不要なら元の値をそのまま）",
+        "technological": "（変更不要なら元の値をそのまま）"
     }}
 }}
 """
@@ -221,23 +231,40 @@ class PlanGenerator:
     def _get_plan_edit_system_prompt(self, has_analysis: bool = False, has_assets: bool = False) -> str:
         """プラン編集用のシステムプロンプト"""
         base_prompt = """あなたは宿泊業界の経験豊富なマーケティングストラテジストです。
-ユーザーの修正指示に従って、マーケティングプラン全体を調整してください。
+ユーザーの修正指示に従って、マーケティングプランを**最小限の変更で**調整してください。
 
-重要なポイント：
-1. 修正指示に基づいて、プラン全体の一貫性を保つように調整してください
-2. プラン名、コンセプト、ターゲット、価格根拠、特典など、関連するすべての箇所を修正してください
-3. 実現可能で具体的な内容にしてください
-4. 必ず指定されたJSON形式で出力してください"""
+【最重要原則：最小限の変更】
+- 修正指示に直接関係する箇所のみを変更してください
+- 一貫性を保つために連動して変更が必要な箇所のみ、追加で変更してください
+- 修正指示に関係ない箇所は、元の内容をそのまま維持してください
+- 「念のため」「ついでに」「より良くするため」の変更は禁止です
+
+【変更の判断基準】
+1. 修正指示の対象箇所 → 必ず変更
+2. 変更により矛盾が生じる箇所 → 最小限の調整で矛盾を解消
+3. その他の箇所 → 変更しない（元の内容をそのままコピー）
+
+【例】
+修正指示：「阿波尾鶏をブランド鶏ではなく通常の鶏肉に変更」
+- ✓ 変更する: 「阿波尾鶏を使った〜」→「地鶏を使った〜」
+- ✓ 変更する: 価格根拠で「ブランド鶏使用」に言及している箇所
+- ✗ 変更しない: コンセプトの文体や表現
+- ✗ 変更しない: ターゲット顧客の情報
+- ✗ 変更しない: 3C分析・PEST分析（鶏肉に言及していない限り）"""
         
         if has_analysis:
             base_prompt += """
-5. 提供されたペルソナ情報や顧客分析結果を十分に考慮し、ターゲット顧客のニーズや価値観に沿った内容にしてください
-6. 口コミで評価されている点は積極的に活用し、改善点とされている点は避けるか対策を含めてください"""
+
+【分析データの活用】
+- ペルソナ情報や顧客分析結果との整合性を確認してください
+- ただし、整合性に問題がない箇所は変更しないでください"""
         
         if has_assets:
             base_prompt += """
-7. 施設の資産情報を参考に、実際に提供可能なサービスや設備の範囲内でプランを作成してください
-8. 施設が提供できないサービスや設備は含めないでください"""
+
+【資産情報の確認】
+- 変更後の内容が施設の資産で提供可能か確認してください
+- 提供不可能な場合のみ、該当箇所を調整してください"""
         
         return base_prompt
     
@@ -313,6 +340,15 @@ class PlanGenerator:
         # JSONをパース
         plans = self._parse_plans_response(response)
         
+        # ペルソナの言語情報をプランに追加
+        if target_persona:
+            target_language = detect_language_from_location(target_persona.get('location', ''))
+            for plan in plans:
+                if 'target_audience' not in plan:
+                    plan['target_audience'] = {}
+                plan['target_audience']['target_language'] = target_language
+                plan['target_audience']['target_language_name'] = get_language_name(target_language)
+        
         return plans
     
     async def generate_plans_from_existing(
@@ -350,6 +386,15 @@ class PlanGenerator:
         
         # JSONをパース
         plans = self._parse_plans_response(response)
+        
+        # ペルソナの言語情報をプランに追加
+        if target_persona:
+            target_language = detect_language_from_location(target_persona.get('location', ''))
+            for plan in plans:
+                if 'target_audience' not in plan:
+                    plan['target_audience'] = {}
+                plan['target_audience']['target_language'] = target_language
+                plan['target_audience']['target_language_name'] = get_language_name(target_language)
         
         return plans
     
@@ -391,6 +436,15 @@ class PlanGenerator:
         
         # JSONをパース
         plans = self._parse_plans_response(response)
+        
+        # ペルソナの言語情報をプランに追加
+        if target_persona:
+            target_language = detect_language_from_location(target_persona.get('location', ''))
+            for plan in plans:
+                if 'target_audience' not in plan:
+                    plan['target_audience'] = {}
+                plan['target_audience']['target_language'] = target_language
+                plan['target_audience']['target_language_name'] = get_language_name(target_language)
         
         return plans
     
