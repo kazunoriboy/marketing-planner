@@ -92,6 +92,61 @@ class LLMClient:
             temperature=0.3  # より決定論的な出力のため温度を低く
         )
     
+    async def analyze_image(
+        self,
+        image_data: bytes,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096
+    ) -> str:
+        """
+        画像を分析してテキストを生成
+        
+        Args:
+            image_data: 画像のバイナリデータ
+            prompt: 分析プロンプト
+            system_prompt: システムプロンプト（オプション）
+            max_tokens: 最大トークン数
+        
+        Returns:
+            分析結果テキスト
+        """
+        try:
+            # モデルを初期化
+            model = genai.GenerativeModel(
+                model_name=self.model_name,
+                system_instruction=system_prompt if system_prompt else None
+            )
+            
+            # 生成設定
+            generation_config = genai.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.3,  # より正確な抽出のため低温度
+            )
+            
+            # 画像データをBase64エンコード
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # 画像とプロンプトを組み合わせて送信
+            response = model.generate_content(
+                [
+                    {
+                        "mime_type": "image/png",
+                        "data": image_base64
+                    },
+                    prompt
+                ],
+                generation_config=generation_config
+            )
+            
+            if response.text:
+                return response.text
+            else:
+                return ""
+                
+        except Exception as e:
+            raise Exception(f"画像分析エラー: {str(e)}")
+
     async def generate_image(
         self,
         prompt: str,

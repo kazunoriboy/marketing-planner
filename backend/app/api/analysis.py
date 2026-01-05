@@ -931,7 +931,8 @@ async def _generate_personas_with_llm(
     "information_source": ["情報収集に使うメディア1", "情報収集に使うメディア2"],
     "needs": ["宿泊施設に求めること1", "宿泊施設に求めること2", "宿泊施設に求めること3"],
     "pain_points": ["旅行に関する悩み1", "旅行に関する悩み2"],
-    "description": "このペルソナの詳細な説明（100〜150文字程度）。どんな人物で、なぜこの宿を選ぶのか、どんな体験を期待しているのかを具体的に。"
+    "description": "このペルソナの詳細な説明（100〜150文字程度）。どんな人物で、なぜこの宿を選ぶのか、どんな体験を期待しているのかを具体的に。",
+    "rationale": "このペルソナを作成した根拠。分析データのどの部分（例: 予約者エリアの〇〇が多い、価格帯が〇〇円、口コミで〇〇が評価されているなど）からこのペルソナを導き出したかを具体的に説明。"
   }}
 ]
 ```
@@ -940,6 +941,7 @@ async def _generate_personas_with_llm(
 - 分析データに基づいた現実的なペルソナを作成してください
 - 各ペルソナは異なる特徴を持つようにしてください（年齢層、旅行目的、予算帯、住んでいる場所などが被らないように）
 - locationは宿泊施設へのアクセスを考慮して、現実的な居住地を設定してください
+- rationaleには必ず分析データの具体的な数値や傾向を引用してください（例: 「関東からの予約が65%を占める」「平均単価が2万円」「口コミで温泉が好評」など）
 - 日本語で出力してください
 - JSON配列のみを出力し、余計な説明は不要です
 """
@@ -972,7 +974,7 @@ async def _generate_personas_with_llm(
         # 必須フィールドの検証
         required_fields = ["name", "age_range", "gender", "location", "occupation", "travel_purpose", 
                           "values", "budget_range", "information_source", "needs", 
-                          "pain_points", "description"]
+                          "pain_points", "description", "rationale"]
         
         validated_personas = []
         for persona in personas[:num_personas]:
@@ -1095,13 +1097,15 @@ async def _edit_persona_with_llm(
   "information_source": ["情報収集に使うメディア1", "情報収集に使うメディア2"],
   "needs": ["宿泊施設に求めること1", "宿泊施設に求めること2", "宿泊施設に求めること3"],
   "pain_points": ["旅行に関する悩み1", "旅行に関する悩み2"],
-  "description": "このペルソナの詳細な説明"
+  "description": "このペルソナの詳細な説明",
+  "rationale": "このペルソナを作成した根拠（修正後も、元の分析データに基づいた根拠を維持または更新）"
 }}
 ```
 
 ## 注意事項
 - 修正指示に関連する部分のみを変更してください
-- 変更に伴い、descriptionも適切に更新してください
+- 変更に伴い、descriptionとrationaleも適切に更新してください
+- rationaleは元の分析データに基づいた根拠を維持しつつ、修正内容を反映させてください
 - 日本語で出力してください
 - JSONオブジェクトのみを出力し、余計な説明は不要です
 """
@@ -1134,7 +1138,7 @@ async def _edit_persona_with_llm(
         # 必須フィールドの検証
         required_fields = ["name", "age_range", "gender", "location", "occupation", "travel_purpose", 
                           "values", "budget_range", "information_source", "needs", 
-                          "pain_points", "description"]
+                          "pain_points", "description", "rationale"]
         
         for field in required_fields:
             if field not in edited_persona:

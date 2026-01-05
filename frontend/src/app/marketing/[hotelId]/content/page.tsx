@@ -22,6 +22,7 @@ export default function ContentPage() {
     generate_lp: true,
     generate_images: true,
     generate_ad_copy: true,
+    generate_ota_text: false,  // OTAテキスト（じゃらん、楽天トラベル向け）
   });
   
   // プレビュー関連のstate
@@ -423,6 +424,21 @@ export default function ContentPage() {
                     />
                     広告画像
                   </label>
+                  <label className="flex items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={generateOptions.generate_ota_text}
+                      onChange={(e) =>
+                        setGenerateOptions((prev) => ({
+                          ...prev,
+                          generate_ota_text: e.target.checked,
+                        }))
+                      }
+                      className="rounded"
+                    />
+                    OTAテキスト
+                    <span className="text-xs text-slate-500 ml-1">（じゃらん・楽天）</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -734,6 +750,213 @@ export default function ContentPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* OTAテキスト（じゃらん・楽天トラベル） */}
+          {currentAsset && currentAsset.ota_text && Object.keys(currentAsset.ota_text).length > 0 && (
+            <div className="glass-card p-6 mt-8 lg:col-span-2">
+              <div className="flex items-center gap-3 mb-6">
+                <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <h4 className="text-xl font-bold text-white">OTAテキスト</h4>
+                <span className="text-xs text-slate-500">（じゃらん・楽天トラベル向け）</span>
+              </div>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* じゃらん用 */}
+                {currentAsset.ota_text.jalan && (
+                  <div className="bg-gradient-to-br from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                        <span className="text-orange-400 font-bold text-sm">J</span>
+                      </div>
+                      <h5 className="text-lg font-bold text-orange-400">じゃらん用</h5>
+                      <button
+                        onClick={() => {
+                          const jalan = currentAsset.ota_text.jalan;
+                          if (jalan) {
+                            const text = `【プランタイトル】\n${jalan.plan_title}\n\n【キャッチコピー】\n${jalan.catch_copy}\n\n【プラン説明】\n${jalan.plan_description}\n\n【特徴】\n${jalan.features?.join('\n') || ''}`;
+                            navigator.clipboard.writeText(text);
+                            alert("じゃらん用テキストをコピーしました");
+                          }
+                        }}
+                        className="ml-auto text-xs text-orange-400 hover:text-orange-300 transition-colors px-2 py-1 rounded hover:bg-orange-500/20"
+                      >
+                        📋 全てコピー
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">プランタイトル（50文字以内）</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.jalan?.plan_title || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <p className="text-white font-semibold bg-black/20 rounded-lg p-3">
+                          {currentAsset.ota_text.jalan.plan_title}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">キャッチコピー</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.jalan?.catch_copy || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <p className="text-orange-300 bg-black/20 rounded-lg p-3">
+                          {currentAsset.ota_text.jalan.catch_copy}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">プラン説明文</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.jalan?.plan_description || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <div className="bg-black/20 rounded-lg p-3 max-h-48 overflow-y-auto">
+                          <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+                            {currentAsset.ota_text.jalan.plan_description}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {currentAsset.ota_text.jalan.features && currentAsset.ota_text.jalan.features.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-medium mb-2">特徴</p>
+                          <div className="flex flex-wrap gap-2">
+                            {currentAsset.ota_text.jalan.features.map((feature, idx) => (
+                              <span key={idx} className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded">
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* 楽天トラベル用 */}
+                {currentAsset.ota_text.rakuten && (
+                  <div className="bg-gradient-to-br from-red-500/10 to-pink-500/10 border border-red-500/30 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center">
+                        <span className="text-red-400 font-bold text-sm">R</span>
+                      </div>
+                      <h5 className="text-lg font-bold text-red-400">楽天トラベル用</h5>
+                      <button
+                        onClick={() => {
+                          const rakuten = currentAsset.ota_text.rakuten;
+                          if (rakuten) {
+                            const text = `【プランタイトル】\n${rakuten.plan_title}\n\n【キャッチコピー】\n${rakuten.catch_copy}\n\n【プラン説明】\n${rakuten.plan_description}\n\n【特徴】\n${rakuten.features?.join('\n') || ''}`;
+                            navigator.clipboard.writeText(text);
+                            alert("楽天トラベル用テキストをコピーしました");
+                          }
+                        }}
+                        className="ml-auto text-xs text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded hover:bg-red-500/20"
+                      >
+                        📋 全てコピー
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">プランタイトル（50文字以内）</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.rakuten?.plan_title || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <p className="text-white font-semibold bg-black/20 rounded-lg p-3">
+                          {currentAsset.ota_text.rakuten.plan_title}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">キャッチコピー</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.rakuten?.catch_copy || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <p className="text-red-300 bg-black/20 rounded-lg p-3">
+                          {currentAsset.ota_text.rakuten.catch_copy}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs text-slate-500 font-medium">プラン説明文</p>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentAsset.ota_text.rakuten?.plan_description || "");
+                              alert("コピーしました");
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            📋
+                          </button>
+                        </div>
+                        <div className="bg-black/20 rounded-lg p-3 max-h-48 overflow-y-auto">
+                          <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+                            {currentAsset.ota_text.rakuten.plan_description}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {currentAsset.ota_text.rakuten.features && currentAsset.ota_text.rakuten.features.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-medium mb-2">特徴</p>
+                          <div className="flex flex-wrap gap-2">
+                            {currentAsset.ota_text.rakuten.features.map((feature, idx) => (
+                              <span key={idx} className="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded">
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

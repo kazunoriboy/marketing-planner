@@ -48,7 +48,17 @@ export interface HotelResponse {
   features: Record<string, unknown>;
   strengths: Record<string, unknown>;
   cv_url?: string;
+  hotel_assets?: HotelAssets;
   role: string;
+}
+
+// 施設の資産情報
+export interface HotelAssets {
+  room_amenities?: string[];    // 部屋の設備・備品
+  shared_facilities?: string[]; // 共有施設
+  dining?: string[];            // 料理・食事
+  services?: string[];          // サービス
+  experiences?: string[];       // 体験・アクティビティ
 }
 
 export interface HotelCreateRequest {
@@ -452,6 +462,62 @@ export const facilityApi = {
       "facility"
     );
   },
+
+  /**
+   * 施設の資産情報を取得
+   */
+  async getHotelAssets(hotelId: number): Promise<HotelAssets> {
+    return apiRequest<HotelAssets>(
+      `/facility/hotels/${hotelId}/assets`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * 施設の資産情報を更新
+   */
+  async updateHotelAssets(hotelId: number, assets: Partial<HotelAssets>): Promise<HotelAssets> {
+    return apiRequest<HotelAssets>(
+      `/facility/hotels/${hotelId}/assets`,
+      {
+        method: "PUT",
+        body: JSON.stringify(assets),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 画像から施設の資産を自動抽出
+   */
+  async extractAssetsFromImage(hotelId: number, file: File): Promise<HotelAssets> {
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    const token = getFacilityToken();
+    if (!token) {
+      throw new ApiError(401, "認証が必要です");
+    }
+    
+    const response = await fetch(
+      `${API_BASE_URL}/facility/hotels/${hotelId}/assets/extract-from-image`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
+      throw new ApiError(response.status, error.detail || "Failed to extract assets from image");
+    }
+    
+    return response.json();
+  },
 };
 
 // ============================================
@@ -508,9 +574,23 @@ export interface CreativeAsset {
   lp_image_urls: Record<string, unknown>;
   ad_image_urls: Record<string, unknown>;
   ad_copy: Record<string, unknown>;
+  ota_text: OTATextContent;
   generation_prompts: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+// OTAテキストの型定義
+export interface OTAPlatformText {
+  plan_title: string;
+  catch_copy: string;
+  plan_description: string;
+  features: string[];
+}
+
+export interface OTATextContent {
+  jalan?: OTAPlatformText;
+  rakuten?: OTAPlatformText;
 }
 
 export interface CreativeGenerationRequest {
@@ -518,6 +598,7 @@ export interface CreativeGenerationRequest {
   generate_lp?: boolean;
   generate_images?: boolean;
   generate_ad_copy?: boolean;
+  generate_ota_text?: boolean;  // OTAテキスト（じゃらん、楽天トラベル向け）
 }
 
 // オペレーション関連の型
@@ -619,6 +700,7 @@ export interface Persona {
   needs: string[];
   pain_points: string[];
   description: string;
+  rationale: string;  // このペルソナを作成した根拠
 }
 
 export interface PersonaGenerationResponse {
@@ -643,6 +725,67 @@ export interface PersonaEditResponse {
   persona: Persona;
   persona_index: number;
   updated_at: string;
+}
+
+// 既存プラン関連の型
+export interface ExistingPlan {
+  id: number;
+  hotel_id: number;
+  plan_title: string;
+  plan_description: string;
+  room_facilities: string[];
+  hotel_assets: string[];
+  price_info: {
+    min?: number;
+    max?: number;
+    standard?: number;
+  };
+  meal_info: {
+    breakfast?: string;
+    dinner?: string;
+    options?: string[];
+  };
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExistingPlanCreate {
+  plan_title: string;
+  plan_description: string;
+  room_facilities?: string[];
+  hotel_assets?: string[];
+  price_info?: {
+    min?: number;
+    max?: number;
+    standard?: number;
+  };
+  meal_info?: {
+    breakfast?: string;
+    dinner?: string;
+    options?: string[];
+  };
+  notes?: string;
+}
+
+export interface ExistingPlanUpdate {
+  plan_title?: string;
+  plan_description?: string;
+  room_facilities?: string[];
+  hotel_assets?: string[];
+  price_info?: {
+    min?: number;
+    max?: number;
+    standard?: number;
+  };
+  meal_info?: {
+    breakfast?: string;
+    dinner?: string;
+    options?: string[];
+  };
+  notes?: string;
+  is_active?: boolean;
 }
 
 export const marketingApi = {
@@ -908,6 +1051,117 @@ export const marketingApi = {
       {
         method: "PUT",
         body: JSON.stringify({ section, instruction }),
+      },
+      "facility"
+    );
+  },
+
+  // ============================================
+  // 既存プラン API
+  // ============================================
+
+  /**
+   * 既存プラン一覧を取得
+   */
+  async listExistingPlans(hotelId: number): Promise<ExistingPlan[]> {
+    return apiRequest<ExistingPlan[]>(
+      `/api/planning/hotels/${hotelId}/existing-plans`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * 既存プランを作成
+   */
+  async createExistingPlan(hotelId: number, data: ExistingPlanCreate): Promise<ExistingPlan> {
+    return apiRequest<ExistingPlan>(
+      `/api/planning/hotels/${hotelId}/existing-plans`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 既存プランを取得
+   */
+  async getExistingPlan(hotelId: number, planId: number): Promise<ExistingPlan> {
+    return apiRequest<ExistingPlan>(
+      `/api/planning/hotels/${hotelId}/existing-plans/${planId}`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * 既存プランを更新
+   */
+  async updateExistingPlan(hotelId: number, planId: number, data: ExistingPlanUpdate): Promise<ExistingPlan> {
+    return apiRequest<ExistingPlan>(
+      `/api/planning/hotels/${hotelId}/existing-plans/${planId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 既存プランを削除
+   */
+  async deleteExistingPlan(hotelId: number, planId: number): Promise<void> {
+    await apiRequest<void>(
+      `/api/planning/hotels/${hotelId}/existing-plans/${planId}`,
+      {
+        method: "DELETE",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 既存プランベースでマーケティングプランを生成
+   */
+  async generatePlansFromExisting(
+    hotelId: number,
+    existingPlanId: number,
+    numPlans: number = 3,
+    personaIndex?: number
+  ): Promise<MarketingPlan[]> {
+    return apiRequest<MarketingPlan[]>(
+      `/api/planning/hotels/${hotelId}/generate-from-existing`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          existing_plan_id: existingPlanId,
+          num_plans: numPlans,
+          persona_index: personaIndex,
+        }),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 施設の資産＋既存プラン全体からマーケティングプランを生成
+   */
+  async generatePlansFromAssets(
+    hotelId: number,
+    numPlans: number = 3,
+    personaIndex?: number
+  ): Promise<MarketingPlan[]> {
+    return apiRequest<MarketingPlan[]>(
+      `/api/planning/hotels/${hotelId}/generate-from-assets`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          num_plans: numPlans,
+          persona_index: personaIndex,
+        }),
       },
       "facility"
     );

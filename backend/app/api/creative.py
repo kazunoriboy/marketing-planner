@@ -26,6 +26,7 @@ class CreativeGenerationRequestAuth(BaseModel):
     generate_lp: bool = True
     generate_images: bool = True
     generate_ad_copy: bool = True
+    generate_ota_text: bool = False  # OTAテキスト（じゃらん、楽天トラベル向け）
 
 
 class SNSPostGenerationRequest(BaseModel):
@@ -105,6 +106,8 @@ async def generate_creative_assets_authenticated(
         ad_image_gen_prompt = None
         ad_copy = {}
         ad_copy_prompt = None
+        ota_text = {}
+        ota_text_prompt = None
         
         # LP用画像を先に生成（LPで使用するため）
         if request.generate_lp:
@@ -150,6 +153,17 @@ async def generate_creative_assets_authenticated(
                 llm_client=llm_client
             )
         
+        # OTAテキスト生成（じゃらん、楽天トラベル向け）
+        if request.generate_ota_text:
+            ota_text, ota_text_prompt = await generator.generate_ota_text(
+                marketing_plan=marketing_plan,
+                llm_client=llm_client,
+                hotel_info={
+                    "name": hotel.name,
+                    "address": hotel.address,
+                }
+            )
+        
         # 既存のアセットがあるか確認
         statement = select(CreativeAsset).where(
             CreativeAsset.marketing_plan_id == request.plan_id
@@ -160,7 +174,8 @@ async def generate_creative_assets_authenticated(
             "lp_prompt": lp_prompt,
             "lp_image_generation_prompt": lp_image_gen_prompt,
             "ad_image_generation_prompt": ad_image_gen_prompt,
-            "ad_copy_prompt": ad_copy_prompt
+            "ad_copy_prompt": ad_copy_prompt,
+            "ota_text_prompt": ota_text_prompt
         }
         
         if existing_asset:
@@ -172,6 +187,8 @@ async def generate_creative_assets_authenticated(
                 existing_asset.ad_image_urls = ad_image_urls
             if ad_copy:
                 existing_asset.ad_copy = ad_copy
+            if ota_text:
+                existing_asset.ota_text = ota_text
             existing_asset.generation_prompts = generation_prompts
             creative_asset = existing_asset
         else:
@@ -181,6 +198,7 @@ async def generate_creative_assets_authenticated(
                 lp_image_urls=lp_image_urls,
                 ad_image_urls=ad_image_urls,
                 ad_copy=ad_copy,
+                ota_text=ota_text,
                 generation_prompts=generation_prompts
             )
             session.add(creative_asset)

@@ -104,6 +104,17 @@ class Hotel(SQLModel, table=True):
     # 例: "https://www.jalan.net/yad123456/"
     cv_url: Optional[str] = None
     
+    # 施設の資産情報（JSON形式）
+    # 施設が提供できるもの（設備、備品、料理など）をカテゴリ別に管理
+    # {
+    #   "room_amenities": ["露天風呂", "マッサージチェア", "加湿器", "コーヒーメーカー"],
+    #   "shared_facilities": ["大浴場", "貸切風呂", "サウナ", "エステ", "庭園", "足湯"],
+    #   "dining": ["和朝食", "洋朝食", "会席料理", "鉄板焼き", "バイキング", "部屋食対応"],
+    #   "services": ["送迎", "荷物預かり", "ルームサービス", "マッサージ", "ベビーシッター"],
+    #   "experiences": ["陶芸体験", "そば打ち体験", "農業体験", "釣り", "クルージング"]
+    # }
+    hotel_assets: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -162,7 +173,8 @@ class MarketingPlan(SQLModel, table=True):
     __tablename__ = "marketing_plans"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    analysis_session_id: int = Field(foreign_key="analysis_sessions.id")
+    # analysis_session_idはOptional（既存プランベースの生成では分析セッションがない場合がある）
+    analysis_session_id: Optional[int] = Field(default=None, foreign_key="analysis_sessions.id")
     
     # プラン基本情報
     status: PlanStatus = Field(default=PlanStatus.draft)
@@ -210,6 +222,10 @@ class CreativeAsset(SQLModel, table=True):
     
     # 広告コピー
     ad_copy: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 複数の広告コピー
+    
+    # OTAテキスト（じゃらん、楽天トラベル向け）
+    # {"jalan": {...}, "rakuten": {...}}
+    ota_text: dict = Field(default_factory=dict, sa_column=Column(JSON))
     
     # 生成メタデータ
     generation_prompts: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 使用したプロンプト
@@ -287,4 +303,46 @@ class OperationChatMessage(SQLModel, table=True):
     # リレーション
     operation_manual: OperationManual = Relationship(back_populates="chat_messages")
 
+
+class ExistingPlan(SQLModel, table=True):
+    """既存プラン（宿が現在運用しているプラン）テーブル
+    
+    宿が既に運用しているプランを登録し、
+    そのプランの見せ方を変えたマーケティングプランを生成するために使用
+    """
+    __tablename__ = "existing_plans"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    hotel_id: int = Field(foreign_key="hotels.id", index=True)
+    
+    # プラン基本情報
+    plan_title: str  # プランのタイトル
+    plan_description: str  # プランの説明文
+    
+    # 部屋についている施設・設備（JSON配列）
+    # 例: ["露天風呂", "マッサージチェア", "ミニバー", "加湿器"]
+    room_facilities: list = Field(default_factory=list, sa_column=Column(JSON))
+    
+    # 宿自体の活用可能な資産（JSON配列）
+    # 例: ["大浴場", "貸切風呂", "レストラン", "バー", "エステ", "庭園", "足湯"]
+    hotel_assets: list = Field(default_factory=list, sa_column=Column(JSON))
+    
+    # 現在の価格帯（参考情報）
+    # {"min": 10000, "max": 30000, "standard": 20000}
+    price_info: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
+    # 食事に関する情報
+    # {"breakfast": "和洋バイキング", "dinner": "会席料理", "options": ["部屋食可", "アレルギー対応"]}
+    meal_info: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    
+    # その他特記事項
+    notes: Optional[str] = None
+    
+    # メタデータ
+    is_active: bool = Field(default=True)  # 現在運用中かどうか
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    hotel: Hotel = Relationship()
 

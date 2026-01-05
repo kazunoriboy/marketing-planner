@@ -192,23 +192,32 @@ class AnalysisService(BaseCSVService):
                 avg_lead_time = df_work['lead_time'].mean()
                 stats["average_lead_time"] = round(avg_lead_time, 1) if pd.notna(avg_lead_time) else None
             
-            # === プラン別予約数Top5 ===
+            # === キャンセルを除いた予約データを作成 ===
+            # キャンセルフラグが設定されている場合、キャンセル以外の予約のみを抽出
+            if 'is_cancelled' in df_work.columns:
+                df_confirmed = df_work[~df_work['is_cancelled']].copy()
+                confirmed_bookings_count = len(df_confirmed)
+            else:
+                df_confirmed = df_work.copy()
+                confirmed_bookings_count = len(df_work)
+            
+            # === プラン別予約数Top5（キャンセルを除く） ===
             plan_col = schema_map.get("plan_name")
-            if plan_col and plan_col in df_work.columns:
-                top_plans = df_work[plan_col].value_counts().head(5).to_dict()
+            if plan_col and plan_col in df_confirmed.columns:
+                top_plans = df_confirmed[plan_col].value_counts().head(5).to_dict()
                 stats["top_plans"] = {str(k): int(v) for k, v in top_plans.items()}
             
-            # === 曜日別稼働率 ===
-            if stay_col and stay_col in df_work.columns:
-                df_work['weekday'] = df_work[stay_col].dt.day_name()
-                weekday_counts = df_work['weekday'].value_counts().to_dict()
+            # === 曜日別稼働率（キャンセルを除く） ===
+            if stay_col and stay_col in df_confirmed.columns:
+                df_confirmed['weekday'] = df_confirmed[stay_col].dt.day_name()
+                weekday_counts = df_confirmed['weekday'].value_counts().to_dict()
                 stats["weekday_occupancy"] = {str(k): int(v) for k, v in weekday_counts.items()}
             
-            # === 宿泊人数統計 ===
+            # === 宿泊人数統計（キャンセルを除く） ===
             guests_col = schema_map.get("num_guests")
-            if guests_col and guests_col in df_work.columns:
-                df_work[guests_col] = pd.to_numeric(df_work[guests_col], errors='coerce')
-                valid_guests = df_work[df_work[guests_col] > 0][guests_col]
+            if guests_col and guests_col in df_confirmed.columns:
+                df_confirmed[guests_col] = pd.to_numeric(df_confirmed[guests_col], errors='coerce')
+                valid_guests = df_confirmed[df_confirmed[guests_col] > 0][guests_col]
                 
                 if len(valid_guests) > 0:
                     # 人数分布を計算（1人、2人、3人、4人、5人以上）
@@ -226,15 +235,16 @@ class AnalysisService(BaseCSVService):
                         "min": int(valid_guests.min()) if pd.notna(valid_guests.min()) else None,
                         "max": int(valid_guests.max()) if pd.notna(valid_guests.max()) else None,
                         "total_guests": int(valid_guests.sum()),
-                        "distribution": guest_distribution
+                        "distribution": guest_distribution,
+                        "note": "キャンセルを除く確定予約のみ"
                     }
             
-            # === 価格統計（宿泊人数あたり単価） ===
+            # === 価格統計（キャンセルを除く、宿泊人数あたり単価） ===
             price_col = schema_map.get("total_price")
-            if price_col and price_col in df_work.columns:
-                df_work[price_col] = pd.to_numeric(df_work[price_col], errors='coerce')
-                # 0以下の値を除外（キャンセル等で金額が0になっているデータを除く）
-                valid_prices = df_work[df_work[price_col] > 0][price_col]
+            if price_col and price_col in df_confirmed.columns:
+                df_confirmed[price_col] = pd.to_numeric(df_confirmed[price_col], errors='coerce')
+                # 0以下の値を除外
+                valid_prices = df_confirmed[df_confirmed[price_col] > 0][price_col]
                 
                 if len(valid_prices) > 0:
                     # 基本の価格統計（合計金額）
@@ -244,13 +254,14 @@ class AnalysisService(BaseCSVService):
                         "total_max": round(valid_prices.max(), 0) if pd.notna(valid_prices.max()) else None,
                         "total_median": round(valid_prices.median(), 0) if pd.notna(valid_prices.median()) else None,
                         "valid_count": int(len(valid_prices)),
-                        "excluded_count": int(len(df_work) - len(valid_prices))
+                        "excluded_count": int(len(df_confirmed) - len(valid_prices)),
+                        "note": "キャンセルを除く確定予約のみ"
                     }
                     
                     # 宿泊人数あたりの単価を計算
-                    if guests_col and guests_col in df_work.columns:
+                    if guests_col and guests_col in df_confirmed.columns:
                         # 価格と人数の両方が有効なデータのみ抽出
-                        valid_data = df_work[(df_work[price_col] > 0) & (df_work[guests_col] > 0)].copy()
+                        valid_data = df_confirmed[(df_confirmed[price_col] > 0) & (df_confirmed[guests_col] > 0)].copy()
                         if len(valid_data) > 0:
                             valid_data['price_per_guest'] = valid_data[price_col] / valid_data[guests_col]
                             price_per_guest = valid_data['price_per_guest']
@@ -260,17 +271,13 @@ class AnalysisService(BaseCSVService):
                             stats["price_stats"]["per_guest_max"] = round(price_per_guest.max(), 0) if pd.notna(price_per_guest.max()) else None
                             stats["price_stats"]["per_guest_median"] = round(price_per_guest.median(), 0) if pd.notna(price_per_guest.median()) else None
             
-            # === 予約者居住エリア統計 ===
+            # === 予約者居住エリア統計（キャンセルを除く） ===
             area_col = schema_map.get("guest_area")
-            if area_col and area_col in df_work.columns:
+            if area_col and area_col in df_confirmed.columns:
                 # 空白やNaNを除外して集計
-                valid_areas = df_work[df_work[area_col].notna() & (df_work[area_col].astype(str).str.strip() != '')]
+                valid_areas = df_confirmed[df_confirmed[area_col].notna() & (df_confirmed[area_col].astype(str).str.strip() != '')]
                 
                 if len(valid_areas) > 0:
-                    # エリア別予約数Top10
-                    area_counts = valid_areas[area_col].value_counts().head(10).to_dict()
-                    top_areas = {str(k): int(v) for k, v in area_counts.items()}
-                    
                     # 全エリア数
                     total_areas = valid_areas[area_col].nunique()
                     
@@ -286,30 +293,78 @@ class AnalysisService(BaseCSVService):
                         '福岡県': '九州', '佐賀県': '九州', '長崎県': '九州', '熊本県': '九州', '大分県': '九州', '宮崎県': '九州', '鹿児島県': '九州', '沖縄県': '九州'
                     }
                     
-                    # 都道府県から地方を抽出（部分一致で対応）
-                    def get_region(area_str):
-                        area_str = str(area_str)
+                    # 海外の国名パターン（よく使われる表記）
+                    overseas_country_patterns = {
+                        # アジア
+                        '中国': '中国', 'china': '中国', '台湾': '台湾', 'taiwan': '台湾',
+                        '韓国': '韓国', 'korea': '韓国', '香港': '香港', 'hongkong': '香港', 'hong kong': '香港',
+                        'シンガポール': 'シンガポール', 'singapore': 'シンガポール',
+                        'タイ': 'タイ', 'thailand': 'タイ', 'マレーシア': 'マレーシア', 'malaysia': 'マレーシア',
+                        'インドネシア': 'インドネシア', 'indonesia': 'インドネシア',
+                        'ベトナム': 'ベトナム', 'vietnam': 'ベトナム', 'フィリピン': 'フィリピン', 'philippines': 'フィリピン',
+                        'インド': 'インド', 'india': 'インド',
+                        # 北米
+                        'アメリカ': 'アメリカ', 'america': 'アメリカ', 'usa': 'アメリカ', 'united states': 'アメリカ', '米国': 'アメリカ',
+                        'カナダ': 'カナダ', 'canada': 'カナダ',
+                        # 欧州
+                        'イギリス': 'イギリス', 'uk': 'イギリス', 'england': 'イギリス', 'britain': 'イギリス', '英国': 'イギリス',
+                        'フランス': 'フランス', 'france': 'フランス', 'ドイツ': 'ドイツ', 'germany': 'ドイツ',
+                        'イタリア': 'イタリア', 'italy': 'イタリア', 'スペイン': 'スペイン', 'spain': 'スペイン',
+                        'オランダ': 'オランダ', 'netherlands': 'オランダ', 'スイス': 'スイス', 'switzerland': 'スイス',
+                        # オセアニア
+                        'オーストラリア': 'オーストラリア', 'australia': 'オーストラリア', '豪州': 'オーストラリア',
+                        'ニュージーランド': 'ニュージーランド', 'new zealand': 'ニュージーランド',
+                    }
+                    
+                    # 都道府県から地方を抽出（部分一致で対応）、海外は国名を返す
+                    def get_region_or_country(area_str):
+                        area_str = str(area_str).strip()
+                        area_lower = area_str.lower()
+                        
+                        # 日本の都道府県をチェック
                         for pref, region in region_mapping.items():
                             if pref in area_str:
-                                return region
-                        return 'その他'
+                                return ('domestic', region)
+                        
+                        # 海外の国名をチェック
+                        for pattern, country in overseas_country_patterns.items():
+                            if pattern in area_lower or pattern in area_str:
+                                return ('overseas', country)
+                        
+                        # どちらにも該当しない場合
+                        return ('unknown', area_str)
                     
                     valid_areas_copy = valid_areas.copy()
-                    valid_areas_copy['region'] = valid_areas_copy[area_col].apply(get_region)
-                    region_counts = valid_areas_copy['region'].value_counts().to_dict()
-                    region_distribution = {str(k): int(v) for k, v in region_counts.items() if k != 'その他'}
+                    valid_areas_copy['area_type'], valid_areas_copy['region_or_country'] = zip(
+                        *valid_areas_copy[area_col].apply(get_region_or_country)
+                    )
                     
-                    # その他が多い場合は含める
-                    other_count = region_counts.get('その他', 0)
-                    if other_count > 0 and other_count > len(valid_areas) * 0.1:  # 10%以上の場合
-                        region_distribution['その他'] = int(other_count)
+                    # 国内の地方別分布
+                    domestic_data = valid_areas_copy[valid_areas_copy['area_type'] == 'domestic']
+                    region_counts = domestic_data['region_or_country'].value_counts().to_dict()
+                    region_distribution = {str(k): int(v) for k, v in region_counts.items()}
+                    
+                    # 海外の国別分布
+                    overseas_data = valid_areas_copy[valid_areas_copy['area_type'] == 'overseas']
+                    country_counts = overseas_data['region_or_country'].value_counts().to_dict()
+                    overseas_distribution = {str(k): int(v) for k, v in country_counts.items()}
+                    
+                    # 不明（国内でも海外でもないもの）の件数
+                    unknown_count = len(valid_areas_copy[valid_areas_copy['area_type'] == 'unknown'])
                     
                     stats["guest_area_stats"] = {
-                        "top_areas": top_areas,
                         "total_unique_areas": int(total_areas),
                         "total_records_with_area": int(len(valid_areas)),
-                        "region_distribution": region_distribution
+                        "domestic_count": int(len(domestic_data)),
+                        "overseas_count": int(len(overseas_data)),
+                        "region_distribution": region_distribution,
+                        "overseas_distribution": overseas_distribution,
+                        "note": "キャンセルを除く確定予約のみ"
                     }
+                    
+                    # 不明が多い場合は含める
+                    if unknown_count > 0 and unknown_count > len(valid_areas) * 0.05:  # 5%以上の場合
+                        stats["guest_area_stats"]["unknown_count"] = int(unknown_count)
         
         except Exception as e:
             print(f"統計計算エラー: {e}")

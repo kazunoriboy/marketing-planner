@@ -106,6 +106,7 @@ class Persona(BaseModel):
     needs: List[str]  # 宿泊施設に求めること
     pain_points: List[str]  # 悩み・課題
     description: str  # 詳細説明
+    rationale: str  # このペルソナを作成した根拠（どの分析データからこのペルソナが導き出されたか）
 
 
 class PersonaGenerationResponse(BaseModel):

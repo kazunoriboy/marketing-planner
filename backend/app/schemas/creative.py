@@ -20,6 +20,7 @@ class CreativeAssetResponse(BaseModel):
     lp_image_urls: Dict
     ad_image_urls: Dict
     ad_copy: Dict
+    ota_text: Dict = {}  # OTAテキスト（じゃらん、楽天トラベル向け）
     generation_prompts: Dict
     created_at: datetime
     

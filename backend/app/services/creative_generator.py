@@ -629,5 +629,110 @@ The image should make viewers want to book immediately.""",
                 },
                 "email_subject": "【特別プラン】ご予約受付中"
             }
+    
+    async def generate_ota_text(
+        self,
+        marketing_plan: MarketingPlan,
+        llm_client,
+        hotel_info: Dict = None
+    ) -> Tuple[Dict, str]:
+        """
+        OTA（じゃらん、楽天トラベル）向けテキストを生成
+        
+        Args:
+            marketing_plan: マーケティングプラン
+            llm_client: LLMクライアント
+            hotel_info: ホテル情報
+        
+        Returns:
+            (OTAテキスト辞書, 生成プロンプト) のタプル
+        """
+        prompt = self._create_ota_text_generation_prompt(marketing_plan, hotel_info)
+        
+        system_prompt = """あなたは宿泊業界のOTAマーケティング専門家です。
+じゃらんや楽天トラベルで高い予約率を実現するプラン説明文を作成してください。
+
+重要なポイント：
+- 具体的な体験価値を伝える
+- ターゲット顧客の心に響く表現を使う
+- 特典や差別化ポイントを明確に
+- 季節感や限定感を演出
+- SEOを意識したキーワードを含める"""
+        
+        response = await llm_client.generate_structured_output(
+            user_prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=3000
+        )
+        
+        # OTAテキストをパース
+        ota_text = self._parse_ota_text(response)
+        
+        return ota_text, prompt
+    
+    def _create_ota_text_generation_prompt(self, plan: MarketingPlan, hotel_info: Dict = None) -> str:
+        """OTAテキスト生成プロンプトを作成"""
+        hotel_section = ""
+        if hotel_info:
+            hotel_section = f"""
+【施設情報】
+施設名: {hotel_info.get('name', '宿泊施設')}
+住所: {hotel_info.get('address', '')}
+"""
+        
+        return f"""
+以下のマーケティングプランに基づいて、OTA（じゃらん、楽天トラベル）向けのプラン説明テキストを作成してください。
+{hotel_section}
+【プラン情報】
+プラン名: {plan.plan_name}
+コンセプト: {plan.concept}
+ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False)}
+特典: {json.dumps(plan.benefits, ensure_ascii=False)}
+
+以下のJSON形式で出力してください：
+{{
+    "jalan": {{
+        "plan_title": "プランタイトル（50文字以内、【】を使った訴求力のあるタイトル）",
+        "catch_copy": "キャッチコピー（30文字以内、インパクトのある一言）",
+        "plan_description": "プラン説明文（1000〜1500文字、改行を含む読みやすい形式）。以下の構成で作成：\\n・冒頭のアピールポイント\\n・プランの特徴\\n・含まれるサービス・特典\\n・おすすめのシーン\\n・注意事項",
+        "features": ["特徴1", "特徴2", "特徴3"]
+    }},
+    "rakuten": {{
+        "plan_title": "プランタイトル（50文字以内、検索されやすいキーワードを含む）",
+        "catch_copy": "キャッチコピー（50文字以内）",
+        "plan_description": "プラン説明文（1000〜2000文字、改行を含む読みやすい形式）。以下の構成で作成：\\n・プランの魅力\\n・含まれるサービス内容\\n・お部屋の特徴\\n・お食事について\\n・特典・サービス\\n・ご予約時の注意",
+        "features": ["特徴1", "特徴2", "特徴3"]
+    }}
+}}
+
+【作成のポイント】
+1. じゃらん向け：感情に訴える表現、体験価値を重視
+2. 楽天トラベル向け：具体的なスペック・サービス内容を詳細に
+3. 両方：SEOキーワード（温泉、露天風呂、懐石料理、記念日など）を自然に含める
+"""
+    
+    def _parse_ota_text(self, response: str) -> Dict:
+        """OTAテキストをパース"""
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            return json.loads(response)
+        except Exception as e:
+            print(f"OTAテキスト解析エラー: {e}")
+            return {
+                "jalan": {
+                    "plan_title": "【特別プラン】心に残るひとときを",
+                    "catch_copy": "大切な人と特別な時間を",
+                    "plan_description": "ゆったりとした時間をお過ごしいただける特別プランです。",
+                    "features": ["特別な体験", "くつろぎの空間", "おもてなし"]
+                },
+                "rakuten": {
+                    "plan_title": "【特別プラン】心に残るひとときを",
+                    "catch_copy": "大切な人と過ごす特別な時間をお届けします",
+                    "plan_description": "ゆったりとした時間をお過ごしいただける特別プランです。",
+                    "features": ["特別な体験", "くつろぎの空間", "おもてなし"]
+                }
+            }
 
 

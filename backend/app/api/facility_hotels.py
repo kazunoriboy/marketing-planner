@@ -1,11 +1,12 @@
 """施設管理API（施設管理者用）"""
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from app.core.database import get_session
+from app.core.llm import get_llm_client
 from app.models import FacilityAdmin, FacilityAdminHotel, Hotel, FacilityAdminHotelRole
 from app.auth.dependencies import get_current_facility_admin
 
@@ -47,6 +48,7 @@ class HotelResponse(BaseModel):
     features: dict
     strengths: dict
     cv_url: Optional[str]
+    hotel_assets: dict = {}  # 施設の資産情報
     role: str  # 施設管理者の権限
     
     class Config:
@@ -57,6 +59,16 @@ class HotelDetailResponse(HotelResponse):
     """施設詳細レスポンス"""
     created_at: datetime
     updated_at: datetime
+
+
+class HotelAssetsUpdateRequest(BaseModel):
+    """施設の資産更新リクエスト"""
+    # カテゴリごとの資産リスト
+    room_amenities: Optional[List[str]] = None  # 部屋の設備・備品
+    shared_facilities: Optional[List[str]] = None  # 共有施設
+    dining: Optional[List[str]] = None  # 料理・食事
+    services: Optional[List[str]] = None  # サービス
+    experiences: Optional[List[str]] = None  # 体験・アクティビティ
 
 
 @router.get("", response_model=List[HotelResponse])
@@ -91,6 +103,7 @@ async def list_my_hotels(
                 features=hotel.features,
                 strengths=hotel.strengths,
                 cv_url=hotel.cv_url,
+                hotel_assets=hotel.hotel_assets or {},
                 role=perm.role,
             ))
     
@@ -144,6 +157,7 @@ async def create_hotel(
         features=hotel.features,
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
+        hotel_assets=hotel.hotel_assets or {},
         role=FacilityAdminHotelRole.owner,
     )
 
@@ -193,6 +207,7 @@ async def get_hotel(
         features=hotel.features,
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
+        hotel_assets=hotel.hotel_assets or {},
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -275,6 +290,7 @@ async def update_hotel(
         features=hotel.features,
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
+        hotel_assets=hotel.hotel_assets or {},
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -336,4 +352,248 @@ async def delete_hotel(
     session.delete(hotel)
     session.commit()
 
+
+# ============================================
+# 施設の資産管理 API
+# ============================================
+
+@router.get("/{hotel_id}/assets", response_model=dict)
+async def get_hotel_assets(
+    hotel_id: int,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    施設の資産情報を取得
+    
+    カテゴリ:
+    - room_amenities: 部屋の設備・備品（露天風呂、マッサージチェア等）
+    - shared_facilities: 共有施設（大浴場、サウナ、エステ等）
+    - dining: 料理・食事（会席料理、朝食バイキング等）
+    - services: サービス（送迎、ルームサービス等）
+    - experiences: 体験・アクティビティ（陶芸体験、釣り等）
+    """
+    # 権限確認
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id
+        )
+    ).first()
+    
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    
+    hotel = session.exec(
+        select(Hotel).where(Hotel.id == hotel_id)
+    ).first()
+    
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+    
+    # デフォルトのカテゴリ構造を返す
+    default_assets = {
+        "room_amenities": [],
+        "shared_facilities": [],
+        "dining": [],
+        "services": [],
+        "experiences": [],
+    }
+    
+    return {**default_assets, **(hotel.hotel_assets or {})}
+
+
+@router.put("/{hotel_id}/assets", response_model=dict)
+async def update_hotel_assets(
+    hotel_id: int,
+    request: HotelAssetsUpdateRequest,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    施設の資産情報を更新
+    
+    - 指定したカテゴリのみ更新される
+    - nullのカテゴリは更新されない
+    """
+    # 権限確認
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id
+        )
+    ).first()
+    
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    
+    if permission.role not in [FacilityAdminHotelRole.owner, FacilityAdminHotelRole.editor]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="編集権限がありません",
+        )
+    
+    hotel = session.exec(
+        select(Hotel).where(Hotel.id == hotel_id)
+    ).first()
+    
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+    
+    # 既存の資産情報を取得（なければ空）
+    current_assets = hotel.hotel_assets or {}
+    
+    # 指定されたカテゴリのみ更新
+    if request.room_amenities is not None:
+        current_assets["room_amenities"] = request.room_amenities
+    if request.shared_facilities is not None:
+        current_assets["shared_facilities"] = request.shared_facilities
+    if request.dining is not None:
+        current_assets["dining"] = request.dining
+    if request.services is not None:
+        current_assets["services"] = request.services
+    if request.experiences is not None:
+        current_assets["experiences"] = request.experiences
+    
+    hotel.hotel_assets = current_assets
+    hotel.updated_at = datetime.utcnow()
+    
+    session.add(hotel)
+    session.commit()
+    session.refresh(hotel)
+    
+    return hotel.hotel_assets
+
+
+@router.post("/{hotel_id}/assets/extract-from-image", response_model=dict)
+async def extract_assets_from_image(
+    hotel_id: int,
+    file: UploadFile = File(...),
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    画像から施設の資産を自動抽出
+    
+    - 画像（スクリーンショットなど）をアップロード
+    - OCRでテキストを読み取り
+    - AIが資産をカテゴリ別に分類して返却
+    """
+    # 権限確認
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id
+        )
+    ).first()
+    
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    
+    # ファイル形式チェック
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="画像ファイルをアップロードしてください",
+        )
+    
+    try:
+        # 画像データを読み込み
+        image_data = await file.read()
+        
+        # LLMで画像を分析して資産を抽出
+        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        
+        system_prompt = """あなたは宿泊施設の資産を分析するエキスパートです。
+画像から読み取れるテキストを元に、施設の資産をカテゴリ別に抽出してください。
+
+【カテゴリ定義】
+- room_amenities: 部屋の設備・備品（露天風呂、マッサージチェア、加湿器、コーヒーメーカー、ミニバー等）
+- shared_facilities: 共有施設（大浴場、貸切風呂、サウナ、エステ、庭園、足湯、ラウンジ、プール等）
+- dining: 料理・食事（会席料理、和朝食、洋朝食、バイキング、鉄板焼き、部屋食、アラカルト等）
+- services: サービス（送迎、荷物預かり、ルームサービス、マッサージ、コンシェルジュ、ベビーシッター等）
+- experiences: 体験・アクティビティ（陶芸体験、そば打ち体験、農業体験、釣り、クルージング、サイクリング等）
+
+【出力ルール】
+- 純粋なJSONのみを返してください（マークダウンのコードブロックは使わない）
+- 各カテゴリは文字列の配列
+- 画像から読み取れた内容のみを抽出（推測しない）
+- 重複を除外"""
+
+        prompt = """この画像から、宿泊施設の資産・設備・サービス情報を読み取ってください。
+
+以下のJSON形式で出力してください：
+{
+    "room_amenities": ["部屋の設備1", "部屋の設備2"],
+    "shared_facilities": ["共有施設1", "共有施設2"],
+    "dining": ["料理1", "料理2"],
+    "services": ["サービス1", "サービス2"],
+    "experiences": ["体験1", "体験2"]
+}
+
+画像内に該当する情報がないカテゴリは空配列[]としてください。"""
+
+        response = await llm_client.analyze_image(
+            image_data=image_data,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=4096
+        )
+        
+        # JSONをパース
+        import json
+        import re
+        
+        # コードブロックを除去
+        cleaned = re.sub(r'```json\s*', '', response)
+        cleaned = re.sub(r'```\s*', '', cleaned)
+        cleaned = cleaned.strip()
+        
+        try:
+            extracted_assets = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # JSONパースに失敗した場合は空を返す
+            extracted_assets = {
+                "room_amenities": [],
+                "shared_facilities": [],
+                "dining": [],
+                "services": [],
+                "experiences": [],
+            }
+        
+        # 必要なキーが存在することを保証
+        default_structure = {
+            "room_amenities": [],
+            "shared_facilities": [],
+            "dining": [],
+            "services": [],
+            "experiences": [],
+        }
+        
+        for key in default_structure:
+            if key not in extracted_assets or not isinstance(extracted_assets[key], list):
+                extracted_assets[key] = []
+        
+        return extracted_assets
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"画像分析エラー: {str(e)}",
+        )
 
