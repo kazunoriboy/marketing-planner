@@ -105,6 +105,7 @@ export default function PlannerPage() {
   const [editingSection, setEditingSection] = useState<EditableSection | null>(null);
   const [editInstruction, setEditInstruction] = useState("");
   const [editingLoading, setEditingLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   
   // オペレーション関連のstate
   const [operationManual, setOperationManual] = useState<OperationManual | null>(null);
@@ -390,17 +391,20 @@ export default function PlannerPage() {
   const handleStartEdit = (section: EditableSection) => {
     setEditingSection(section);
     setEditInstruction("");
+    setEditError(null);
   };
 
   const handleCancelEdit = () => {
     setEditingSection(null);
     setEditInstruction("");
+    setEditError(null);
   };
 
   const handleSubmitEdit = async () => {
     if (!selectedPlan || !editingSection || !editInstruction.trim()) return;
     
     setEditingLoading(true);
+    setEditError(null);
     try {
       const updated = await marketingApi.editPlanSection(
         hotelId,
@@ -412,9 +416,23 @@ export default function PlannerPage() {
       setSelectedPlan(updated);
       setEditingSection(null);
       setEditInstruction("");
+      setEditError(null);
     } catch (error) {
       console.error("Section edit failed:", error);
-      alert("修正に失敗しました。もう一度お試しください。");
+      // APIからのエラーメッセージを取得
+      let errorMessage = "AIの応答が不完全でした。「再送信」ボタンをクリックして、もう一度お試しください。";
+      if (error instanceof Error && error.message) {
+        // APIエラーの場合、メッセージを抽出
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed.detail) {
+            errorMessage = parsed.detail;
+          }
+        } catch {
+          // パース失敗の場合はデフォルトメッセージを使用
+        }
+      }
+      setEditError(errorMessage);
     } finally {
       setEditingLoading(false);
     }
@@ -1244,6 +1262,15 @@ export default function PlannerPage() {
                         rows={3}
                         disabled={editingLoading}
                       />
+                      {/* エラー表示 */}
+                      {editError && (
+                        <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-start gap-2">
+                          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-red-300 text-sm">{editError}</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="flex justify-end gap-2 mt-3">
                         <button
                           onClick={handleCancelEdit}
@@ -1262,6 +1289,11 @@ export default function PlannerPage() {
                             <>
                               <Loader2 className="w-4 h-4 animate-spin" />
                               修正中...
+                            </>
+                          ) : editError ? (
+                            <>
+                              <Send className="w-4 h-4" />
+                              再送信
                             </>
                           ) : (
                             <>
@@ -1343,6 +1375,15 @@ export default function PlannerPage() {
                           rows={3}
                           disabled={editingLoading}
                         />
+                        {/* エラー表示 */}
+                        {editError && (
+                          <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-start gap-2">
+                            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-red-300 text-sm">{editError}</p>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex justify-end gap-2 mt-3">
                           <button
                             onClick={handleCancelEdit}
@@ -1361,6 +1402,11 @@ export default function PlannerPage() {
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
                                 修正中...
+                              </>
+                            ) : editError ? (
+                              <>
+                                <Send className="w-4 h-4" />
+                                再送信
                               </>
                             ) : (
                               <>
@@ -1439,6 +1485,15 @@ export default function PlannerPage() {
                           rows={3}
                           disabled={editingLoading}
                         />
+                        {/* エラー表示 */}
+                        {editError && (
+                          <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-start gap-2">
+                            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-red-300 text-sm">{editError}</p>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex justify-end gap-2 mt-3">
                           <button
                             onClick={handleCancelEdit}
@@ -1457,6 +1512,11 @@ export default function PlannerPage() {
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
                                 修正中...
+                              </>
+                            ) : editError ? (
+                              <>
+                                <Send className="w-4 h-4" />
+                                再送信
                               </>
                             ) : (
                               <>
@@ -1540,6 +1600,15 @@ export default function PlannerPage() {
                           rows={3}
                           disabled={editingLoading}
                         />
+                        {/* エラー表示 */}
+                        {editError && (
+                          <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-start gap-2">
+                            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-red-300 text-sm">{editError}</p>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex justify-end gap-2 mt-3">
                           <button
                             onClick={handleCancelEdit}
@@ -1558,6 +1627,11 @@ export default function PlannerPage() {
                               <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
                                 修正中...
+                              </>
+                            ) : editError ? (
+                              <>
+                                <Send className="w-4 h-4" />
+                                再送信
                               </>
                             ) : (
                               <>

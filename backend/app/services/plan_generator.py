@@ -17,6 +17,9 @@ SECTION_LABELS = {
 class PlanGenerator:
     """マーケティングプラン生成サービス"""
     
+    # リトライ設定
+    MAX_RETRIES = 3
+    
     def __init__(self):
         pass
     
@@ -55,20 +58,43 @@ class PlanGenerator:
             existing_plans=existing_plans
         )
         
-        # LLMで再生成
-        response = await llm_client.generate_structured_output(
-            user_prompt=prompt,
-            system_prompt=self._get_plan_edit_system_prompt(
-                has_analysis=analysis_session is not None,
-                has_assets=hotel_assets is not None
-            ),
-            max_tokens=4000
-        )
+        last_error = None
         
-        # レスポンスをパース
-        edited_plan = self._parse_plan_edit_response(response)
+        # リトライ機構
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # LLMで再生成
+                response = await llm_client.generate_structured_output(
+                    user_prompt=prompt,
+                    system_prompt=self._get_plan_edit_system_prompt(
+                        has_analysis=analysis_session is not None,
+                        has_assets=hotel_assets is not None
+                    ),
+                    max_tokens=4000
+                )
+                
+                # レスポンスをパース
+                edited_plan = self._parse_plan_edit_response(response)
+                
+                return edited_plan
+                
+            except ValueError as e:
+                last_error = e
+                print(f"プラン編集リトライ {attempt + 1}/{self.MAX_RETRIES}: {e}")
+                
+                if attempt < self.MAX_RETRIES - 1:
+                    # リトライ前に少し待機（指数バックオフ）
+                    import asyncio
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                else:
+                    # 最終リトライも失敗
+                    raise ValueError(
+                        "AIの応答が不完全でした。「再送信」ボタンをクリックして、もう一度お試しください。"
+                    ) from last_error
         
-        return edited_plan
+        # ここには到達しないはずだが念のため
+        raise ValueError("プラン修正に失敗しました。再度お試しください。")
     
     def _create_plan_edit_prompt(
         self,
@@ -268,8 +294,72 @@ class PlanGenerator:
         
         return base_prompt
     
+    def _try_repair_json(self, broken_json: str) -> Optional[str]:
+        """
+        壊れたJSONの修復を試みる
+        
+        一般的なエラーパターン:
+        - 文字列が途中で切れている（Unterminated string）
+        - 閉じ括弧が不足している
+        - 末尾のカンマ
+        """
+        repaired = broken_json.strip()
+        
+        # マークダウンコードブロックを除去
+        if repaired.startswith("```"):
+            lines = repaired.split("\n")
+            # 最初の```行を除去
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            # 最後の```を除去
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            repaired = "\n".join(lines)
+        
+        # JSONブロックを抽出
+        json_match = re.search(r'\{.*', repaired, re.DOTALL)
+        if not json_match:
+            return None
+        repaired = json_match.group()
+        
+        # 最後の完全なオブジェクト/配列を見つける
+        # 開き括弧と閉じ括弧のカウント
+        open_braces = repaired.count('{')
+        close_braces = repaired.count('}')
+        open_brackets = repaired.count('[')
+        close_brackets = repaired.count(']')
+        
+        # 閉じ括弧が不足している場合、追加
+        missing_braces = open_braces - close_braces
+        missing_brackets = open_brackets - close_brackets
+        
+        if missing_braces > 0 or missing_brackets > 0:
+            # 末尾の不完全な部分を切り取る試行
+            # 最後の完全なプロパティを見つける
+            last_complete = repaired
+            
+            # 途中で切れた文字列を閉じる試行
+            # パターン: "key": "value が途中で切れている場合
+            if missing_braces > 0:
+                # 末尾がコンマや不完全な値の場合
+                last_complete = re.sub(r',\s*"[^"]*$', '', last_complete)  # 切れたキーを削除
+                last_complete = re.sub(r':\s*"[^"]*$', ': ""', last_complete)  # 切れた値を空文字に
+                last_complete = re.sub(r',\s*$', '', last_complete)  # 末尾のカンマを削除
+                
+                # 閉じ括弧を追加
+                last_complete += ']' * missing_brackets + '}' * missing_braces
+            
+            repaired = last_complete
+        
+        # 末尾のカンマを除去（JSONでは許可されていない）
+        repaired = re.sub(r',(\s*[}\]])', r'\1', repaired)
+        
+        return repaired
+    
     def _parse_plan_edit_response(self, response: str) -> Dict[str, Any]:
         """プラン編集レスポンスをパース"""
+        required_fields = ["plan_name", "concept", "target_audience", "price_range", "benefits", "strategy_3c", "strategy_pest"]
+        
         try:
             # JSONを抽出
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -279,7 +369,6 @@ class PlanGenerator:
                 data = json.loads(response)
             
             # 必須フィールドの確認
-            required_fields = ["plan_name", "concept", "target_audience", "price_range", "benefits", "strategy_3c", "strategy_pest"]
             for field in required_fields:
                 if field not in data:
                     raise ValueError(f"必須フィールド '{field}' が見つかりません")
@@ -288,6 +377,22 @@ class PlanGenerator:
         
         except json.JSONDecodeError as e:
             print(f"プラン編集レスポンスJSONパースエラー: {e}")
+            print(f"レスポンス（最初の500文字）: {response[:500]}")
+            
+            # JSON修復を試みる
+            repaired = self._try_repair_json(response)
+            if repaired:
+                try:
+                    data = json.loads(repaired)
+                    # 必須フィールドの確認
+                    for field in required_fields:
+                        if field not in data:
+                            raise ValueError(f"修復後も必須フィールド '{field}' が見つかりません")
+                    print("JSON修復に成功しました")
+                    return data
+                except json.JSONDecodeError as repair_error:
+                    print(f"JSON修復も失敗: {repair_error}")
+            
             raise ValueError(f"修正結果の解析に失敗しました: JSONの形式が不正です")
         except Exception as e:
             print(f"プラン編集レスポンス解析エラー: {e}")
