@@ -494,28 +494,54 @@ export const facilityApi = {
   async extractAssetsFromImage(hotelId: number, file: File): Promise<HotelAssets> {
     const formData = new FormData();
     formData.append("file", file);
-    
-    const token = getFacilityToken();
-    if (!token) {
-      throw new ApiError(401, "認証が必要です");
-    }
-    
-    const response = await fetch(
-      `${API_BASE_URL}/facility/hotels/${hotelId}/assets/extract-from-image`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
+
+    const makeRequest = async (token: string | null) => {
+      return fetch(
+        `${API_BASE_URL}/facility/hotels/${hotelId}/assets/extract-from-image`,
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+    };
+
+    let token = localStorage.getItem("facility_access_token");
+    let response = await makeRequest(token);
+
+    // 401エラーの場合はトークンリフレッシュを試みる
+    if (response.status === 401) {
+      const refreshToken = localStorage.getItem("facility_refresh_token");
+      if (refreshToken) {
+        try {
+          const refreshResponse = await fetch(`${API_BASE_URL}/facility/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+
+          if (refreshResponse.ok) {
+            const tokens: TokenResponse = await refreshResponse.json();
+            saveTokens("facility", tokens);
+            token = tokens.access_token;
+            response = await makeRequest(token);
+          } else {
+            clearTokens("facility");
+          }
+        } catch {
+          clearTokens("facility");
+        }
       }
-    );
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-      throw new ApiError(response.status, error.detail || "Failed to extract assets from image");
     }
-    
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(
+        response.status,
+        errorData.detail || "画像からの資産抽出に失敗しました"
+      );
+    }
+
     return response.json();
   },
 };
