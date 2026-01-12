@@ -1,11 +1,16 @@
 import os
 import base64
+import asyncio
 from typing import Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
 import google.generativeai as genai
 from google.generativeai import types
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 画像生成用のスレッドプール（同期APIをブロックせずに実行するため）
+_image_executor = ThreadPoolExecutor(max_workers=4)
 
 
 class LLMClient:
@@ -26,7 +31,7 @@ class LLMClient:
         temperature: float = 1.0
     ) -> str:
         """
-        テキストを生成
+        テキストを生成（非同期版）
         
         Args:
             user_prompt: ユーザープロンプト
@@ -50,8 +55,8 @@ class LLMClient:
                 temperature=temperature,
             )
             
-            # テキスト生成
-            response = model.generate_content(
+            # 非同期でテキスト生成（イベントループをブロックしない）
+            response = await model.generate_content_async(
                 user_prompt,
                 generation_config=generation_config
             )
@@ -100,7 +105,7 @@ class LLMClient:
         max_tokens: int = 4096
     ) -> str:
         """
-        画像を分析してテキストを生成
+        画像を分析してテキストを生成（非同期版）
         
         Args:
             image_data: 画像のバイナリデータ
@@ -127,8 +132,8 @@ class LLMClient:
             # 画像データをBase64エンコード
             image_base64 = base64.b64encode(image_data).decode('utf-8')
             
-            # 画像とプロンプトを組み合わせて送信
-            response = model.generate_content(
+            # 非同期で画像とプロンプトを組み合わせて送信
+            response = await model.generate_content_async(
                 [
                     {
                         "mime_type": "image/png",
@@ -153,7 +158,7 @@ class LLMClient:
         aspect_ratio: str = "16:9"
     ) -> Tuple[bytes, str]:
         """
-        テキストから画像を生成
+        テキストから画像を生成（非同期版）
         
         Args:
             prompt: 画像生成プロンプト
@@ -165,9 +170,10 @@ class LLMClient:
         Note:
             画像生成に使用するモデルはクライアント初期化時のmodel_nameを使用
             (例: gemini-3-pro-image-preview)
+            google.genai パッケージは同期APIのため、スレッドプールで実行
         """
-        try:
-            # 新しい google-genai パッケージを使用
+        def _generate_image_sync():
+            """同期的な画像生成処理"""
             from google import genai as genai_new
             from google.genai import types as genai_types
             
@@ -189,6 +195,12 @@ class LLMClient:
                     return part.inline_data.data, part.inline_data.mime_type
             
             raise Exception("画像が生成されませんでした")
+        
+        try:
+            # スレッドプールで同期処理を実行（イベントループをブロックしない）
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(_image_executor, _generate_image_sync)
+            return result
                 
         except Exception as e:
             raise Exception(f"画像生成エラー: {str(e)}")
@@ -241,5 +253,3 @@ async def generate_text(
         max_tokens=max_tokens,
         temperature=temperature
     )
-
-
