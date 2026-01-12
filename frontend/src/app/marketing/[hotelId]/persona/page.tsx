@@ -155,8 +155,8 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
                 </div>
               </div>
             )}
-            {obj.note && (
-              <p className="text-slate-600 text-xs pt-2 border-t border-white/10">※{obj.note as string}</p>
+            {obj.note != null && (
+              <p className="text-slate-600 text-xs pt-2 border-t border-white/10">※{String(obj.note)}</p>
             )}
           </div>
         );
@@ -224,8 +224,8 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
                 ※ 金額0円のデータ {formatNumber(obj.excluded_count as number)}件を除外
               </p>
             )}
-            {obj.note && (
-              <p className="text-slate-600 text-xs">※{obj.note as string}</p>
+            {obj.note != null && (
+              <p className="text-slate-600 text-xs">※{String(obj.note)}</p>
             )}
           </div>
         );
@@ -347,7 +347,7 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
             {obj.total_unique_areas !== undefined && (
               <p className="text-slate-500 text-xs pt-2 border-t border-white/10">
                 {formatNumber(obj.total_records_with_area as number)}件中 {formatNumber(obj.total_unique_areas as number)}エリアから予約
-                {obj.note && <span className="block text-slate-600 text-xs mt-1">※{obj.note as string}</span>}
+                {obj.note != null && <span className="block text-slate-600 text-xs mt-1">※{String(obj.note)}</span>}
               </p>
             )}
           </div>
