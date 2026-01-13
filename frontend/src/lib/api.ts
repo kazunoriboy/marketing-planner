@@ -567,6 +567,32 @@ export interface CSVAnalysisResponse {
   statistics: Record<string, unknown>;
   insights: string;
   created_at: string;
+  upload_count?: number;
+  period_overlap_warning?: string;
+}
+
+export interface CSVUploadHistory {
+  id: number;
+  hotel_id: number;
+  filename: string;
+  upload_date: string;
+  record_count: number;
+  data_period_start: string | null;
+  data_period_end: string | null;
+  is_migrated: boolean;
+  notes: string | null;
+}
+
+export interface CSVUploadHistoryListResponse {
+  hotel_id: number;
+  histories: CSVUploadHistory[];
+  total_count: number;
+}
+
+export interface CSVHistoryDeleteResponse {
+  deleted_id: number;
+  remaining_count: number;
+  statistics: Record<string, unknown>;
 }
 
 export interface MarketResearchResponse {
@@ -887,6 +913,30 @@ export const marketingApi = {
     }
 
     return response.json();
+  },
+
+  /**
+   * CSVアップロード履歴を取得
+   */
+  async getCSVUploadHistory(hotelId: number): Promise<CSVUploadHistoryListResponse> {
+    return apiRequest<CSVUploadHistoryListResponse>(
+      `/api/analysis/hotels/${hotelId}/csv-history`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * CSVアップロード履歴を削除
+   */
+  async deleteCSVUploadHistory(hotelId: number, historyId: number): Promise<CSVHistoryDeleteResponse> {
+    return apiRequest<CSVHistoryDeleteResponse>(
+      `/api/analysis/hotels/${hotelId}/csv-history/${historyId}`,
+      {
+        method: "DELETE",
+      },
+      "facility"
+    );
   },
 
   /**

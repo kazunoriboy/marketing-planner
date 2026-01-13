@@ -18,13 +18,13 @@ export default function ContentPage() {
         
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <select className="bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500">
+            <select className="bg-slate-800 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500 [&>option]:bg-slate-800 [&>option]:text-white">
               <option>プラットフォームを選択</option>
               <option>Instagram</option>
               <option>Facebook</option>
               <option>Twitter</option>
             </select>
-            <select className="bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500">
+            <select className="bg-slate-800 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500 [&>option]:bg-slate-800 [&>option]:text-white">
               <option>投稿タイプを選択</option>
               <option>温泉紹介</option>
               <option>料理紹介</option>

@@ -74,7 +74,7 @@ export default function MarketPage() {
               <select
                 value={radiusKm}
                 onChange={(e) => setRadiusKm(Number(e.target.value))}
-                className="bg-white/5 border border-white/10 rounded-lg p-2 text-white"
+                className="bg-slate-800 border border-white/10 rounded-lg p-2 text-white [&>option]:bg-slate-800 [&>option]:text-white"
               >
                 <option value={5}>5km</option>
                 <option value={10}>10km</option>

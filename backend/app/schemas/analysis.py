@@ -14,6 +14,38 @@ class CSVAnalysisResponse(BaseModel):
     statistics: Dict
     insights: str
     created_at: datetime
+    upload_count: Optional[int] = None  # CSVアップロード回数
+    period_overlap_warning: Optional[str] = None  # 期間重複の警告
+
+
+class CSVUploadHistoryResponse(BaseModel):
+    """CSVアップロード履歴レスポンス"""
+    id: int
+    hotel_id: int
+    filename: str
+    upload_date: datetime
+    record_count: int
+    data_period_start: Optional[datetime] = None
+    data_period_end: Optional[datetime] = None
+    is_migrated: bool
+    notes: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class CSVUploadHistoryListResponse(BaseModel):
+    """CSVアップロード履歴一覧レスポンス"""
+    hotel_id: int
+    histories: List["CSVUploadHistoryResponse"]
+    total_count: int
+
+
+class CSVHistoryDeleteResponse(BaseModel):
+    """CSVアップロード履歴削除レスポンス"""
+    deleted_id: int
+    remaining_count: int
+    statistics: Dict  # 再計算後の統計
 
 
 class MarketResearchRequest(BaseModel):

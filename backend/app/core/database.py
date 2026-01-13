@@ -15,7 +15,10 @@ DATABASE_URL = os.getenv(
 engine = create_engine(
     DATABASE_URL,
     echo=False,  # True: SQLログを出力（デバッグ用）
-    pool_pre_ping=True  # 接続の健全性チェック
+    pool_pre_ping=True,  # 接続の健全性チェック
+    pool_size=10,  # 接続プールのサイズ
+    max_overflow=20,  # プールが満杯の場合の追加接続数
+    pool_timeout=30,  # 接続取得のタイムアウト（秒）
 )
 
 

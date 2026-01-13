@@ -1,13 +1,70 @@
 import os
-from fastapi import FastAPI
+import logging
+from logging.handlers import RotatingFileHandler
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import traceback
 
 from app.core.database import create_db_and_tables
 from app.core.config import settings
 from app.api import analysis, planning, creative, operation
 from app.api import admin_auth, admin_users, facility_auth, facility_hotels
+
+# ロギング設定
+def setup_logging():
+    """ログ設定を初期化"""
+    # ログディレクトリを作成
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # ログファイルパス
+    log_file = os.path.join(log_dir, "app.log")
+    error_log_file = os.path.join(log_dir, "error.log")
+    
+    # フォーマッター
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # ルートロガー設定
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # コンソールハンドラー
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    # ファイルハンドラー（通常ログ）
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+    
+    # ファイルハンドラー（エラーログ）
+    error_handler = RotatingFileHandler(
+        error_log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    root_logger.addHandler(error_handler)
+    
+    return logging.getLogger(__name__)
+
+# ロガーを初期化
+logger = setup_logging()
 
 
 @asynccontextmanager
@@ -40,6 +97,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# 例外ハンドリングミドルウェア
+@app.middleware("http")
+async def log_exceptions_middleware(request: Request, call_next):
+    """リクエストの例外をログに記録"""
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        logger.error(f"Unhandled exception: {str(e)}")
+        logger.error(f"Request: {request.method} {request.url}")
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        raise
 
 # 静的ファイル配信（生成画像用）
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

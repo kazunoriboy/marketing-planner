@@ -121,6 +121,45 @@ class Hotel(SQLModel, table=True):
     # リレーション
     analysis_sessions: list["AnalysisSession"] = Relationship(back_populates="hotel")
     admin_permissions: list["FacilityAdminHotel"] = Relationship(back_populates="hotel")
+    csv_upload_histories: list["CSVUploadHistory"] = Relationship(back_populates="hotel")
+
+
+class CSVUploadHistory(SQLModel, table=True):
+    """CSVアップロード履歴テーブル
+    
+    CSVファイルをアップロードするたびに1レコード作成され、
+    個別の統計情報を保持する。AnalysisSessionには合算した統計が保存される。
+    """
+    __tablename__ = "csv_upload_histories"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    hotel_id: int = Field(foreign_key="hotels.id", index=True)
+    
+    # ファイル情報
+    filename: str  # アップロードしたファイル名
+    file_hash: Optional[str] = None  # ファイルのハッシュ値（重複検知用）
+    
+    # データ期間（重複チェック用）
+    # CSVから抽出した宿泊日の範囲
+    data_period_start: Optional[datetime] = None  # データ期間の開始日
+    data_period_end: Optional[datetime] = None    # データ期間の終了日
+    
+    # 統計情報（このCSV単体の統計）
+    statistics: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    record_count: int = Field(default=0)  # レコード数
+    
+    # 移行フラグ
+    is_migrated: bool = Field(default=False)  # システム移行により作成されたか
+    
+    # メモ
+    notes: Optional[str] = None
+    
+    # メタデータ
+    upload_date: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    hotel: "Hotel" = Relationship(back_populates="csv_upload_histories")
 
 
 class AnalysisSession(SQLModel, table=True):
@@ -131,8 +170,9 @@ class AnalysisSession(SQLModel, table=True):
     hotel_id: int = Field(foreign_key="hotels.id")
     
     # CSV分析結果
-    csv_statistics: dict = Field(default_factory=dict, sa_column=Column(JSON))  # Pandasでの計算結果
+    csv_statistics: dict = Field(default_factory=dict, sa_column=Column(JSON))  # Pandasでの計算結果（合算）
     csv_insights: Optional[str] = None  # AIによるインサイト文章
+    csv_upload_count: int = Field(default=0)  # CSVアップロード回数
     
     # 市場調査結果
     competitors_list: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 競合リスト

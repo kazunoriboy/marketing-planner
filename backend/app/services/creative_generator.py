@@ -618,11 +618,27 @@ The image should make viewers want to book immediately.""",
     def _extract_code_from_response(self, response: str) -> str:
         """レスポンスからコードブロックを抽出"""
         # マークダウンのコードブロックを抽出（HTML優先）
-        code_match = re.search(r'```(?:html|tsx|typescript|jsx|javascript)?\n(.*?)\n```', response, re.DOTALL)
+        # パターン1: ```html や ```typescript など言語指定付き
+        code_match = re.search(r'```(?:html|tsx|typescript|jsx|javascript)\s*\n(.*?)```', response, re.DOTALL)
         if code_match:
-            return code_match.group(1)
+            return code_match.group(1).strip()
         
-        # コードブロックがない場合はレスポンス全体を返す
+        # パターン2: 言語指定なしのコードブロック
+        code_match = re.search(r'```\s*\n(.*?)```', response, re.DOTALL)
+        if code_match:
+            return code_match.group(1).strip()
+        
+        # パターン3: <!DOCTYPE html> または <html から始まるHTMLを直接抽出
+        html_match = re.search(r'(<!DOCTYPE html>.*</html>)', response, re.DOTALL | re.IGNORECASE)
+        if html_match:
+            return html_match.group(1).strip()
+        
+        # パターン4: <html>から始まるHTMLを抽出
+        html_match = re.search(r'(<html.*</html>)', response, re.DOTALL | re.IGNORECASE)
+        if html_match:
+            return html_match.group(1).strip()
+        
+        # コードブロックもHTMLも見つからない場合はレスポンス全体を返す
         return response
     
     def _parse_image_prompts(self, response: str) -> Dict:

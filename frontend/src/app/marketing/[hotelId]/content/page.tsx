@@ -361,7 +361,7 @@ export default function ContentPage() {
                     const plan = approvedPlans.find((p) => p.id === Number(e.target.value));
                     setSelectedPlan(plan || null);
                   }}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white"
+                  className="w-full bg-slate-800 border border-white/10 rounded-lg p-3 text-white [&>option]:bg-slate-800 [&>option]:text-white"
                 >
                   {approvedPlans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
@@ -974,7 +974,7 @@ export default function ContentPage() {
                   <select 
                     value={snsPlatform}
                     onChange={(e) => setSnsPlatform(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500"
+                    className="w-full bg-slate-800 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500 [&>option]:bg-slate-800 [&>option]:text-white"
                   >
                     <option value="">プラットフォームを選択</option>
                     <option value="instagram">Instagram</option>
@@ -987,7 +987,7 @@ export default function ContentPage() {
                   <select 
                     value={snsPostType}
                     onChange={(e) => setSnsPostType(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500"
+                    className="w-full bg-slate-800 border border-white/10 rounded-lg p-3 text-slate-200 focus:outline-none focus:border-purple-500 [&>option]:bg-slate-800 [&>option]:text-white"
                   >
                     <option value="">投稿タイプを選択</option>
                     <option value="温泉紹介">温泉紹介</option>

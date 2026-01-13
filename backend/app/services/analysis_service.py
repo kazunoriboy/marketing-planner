@@ -43,16 +43,21 @@ class AnalysisService(BaseCSVService):
         system_prompt = """あなたは宿泊予約データ分析の専門家です。
 提示されたCSVデータから、以下の情報を表すカラム名を特定し、正確なJSON形式で返してください。
 
-- booking_date (予約日)
-- stay_date (宿泊日)
-- plan_name (プラン名)
-- total_price (合計金額)
-- num_guests (宿泊人数・利用人数)
-- status (予約ステータス - キャンセル判定用)
-- guest_area (予約者の住所・都道府県・居住地域 - 「東京都」「大阪府」「関東」「九州」などのエリア情報)
+- booking_date (予約日・予約受付日・登録日・受信日など、予約が入った日)
+- stay_date (宿泊日・チェックイン日・利用日・開始日など、実際に宿泊する日)
+- plan_name (プラン名・企画名・商品名など)
+- total_price (合計金額・請求金額・料金・ポイント割引後額・支払額など、実際の支払い金額)
+- num_guests (宿泊人数・利用人数・人数・大人人数など)
+- status (予約ステータス・区分・状態など - 「予約」「取消」「キャンセル」などの値を含むカラム)
+- guest_area (予約者の住所・都道府県・居住地域・発信地など - 「東京都」「大阪府」「関東」「九州」などのエリア情報)
+
+【重要な判断基準】
+- booking_dateは「受信日」「登録日」「予約日」「受付日」などを優先
+- stay_dateは「チェックイン」「宿泊日」「利用日」「開始日付」などを優先
+- total_priceは「ポイント割引後額」「請求金額」「支払額」など実際の金額を優先
+- statusは「区分」「予約状態」「ステータス」などで、値に「取消」「キャンセル」「予約」「確定」等が含まれるものを選ぶ
 
 ※データの中身（日付フォーマットや値の傾向）から文脈を読んで判断すること。
-※guest_areaは「都道府県」「住所」「居住地」「エリア」「地域」などの名前のカラムを探してください。
 該当するカラムがない場合は null を返してください。"""
         
         user_prompt = f"""以下のCSVデータを解析してください。
@@ -97,8 +102,10 @@ class AnalysisService(BaseCSVService):
             
             return schema_map
         except Exception as e:
-            print(f"スキーマ推定エラー: {e}")
-            print(f"LLMレスポンス: {response}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"スキーマ推定エラー: {e}")
+            logger.debug(f"LLMレスポンス: {response}")
             # デフォルトマッピング
             return {
                 "booking_date": None,
@@ -142,30 +149,135 @@ class AnalysisService(BaseCSVService):
         try:
             df_work = df.copy()
             
+            # === 日付変換ヘルパー関数 ===
+            def convert_date_column(series: pd.Series) -> pd.Series:
+                """
+                様々な日付フォーマットに対応した日付変換
+                - 通常の日付文字列（2024-01-01, 2024/01/01, 01-01-2024等）
+                - YYYYMMDD形式（20240101）
+                - YYYYMMDD HH:MM:SS形式（20240101 12:30:45）
+                - Excelシリアル値（45292 = 2024-01-01）
+                - Unixタイムスタンプ（秒/ミリ秒）
+                """
+                # サンプル値を取得して形式を判別
+                sample_values = series.dropna().head(5).astype(str).tolist()
+                total_count = len(series.dropna())
+                
+                if not sample_values or total_count == 0:
+                    return pd.to_datetime(series, errors='coerce')
+                
+                # まずYYYYMMDD形式かどうかをチェック（8桁の数字）
+                # これを先にチェックしないと、pd.to_datetimeが誤って変換してしまう
+                if re.match(r'^\d{8}$', sample_values[0].strip()):
+                    return pd.to_datetime(series.astype(str).str.strip(), format='%Y%m%d', errors='coerce')
+                
+                # YYYYMMDD HH:MM:SS形式のチェック
+                if re.match(r'^\d{8}\s+\d{1,2}:\d{2}:\d{2}', sample_values[0].strip()):
+                    return pd.to_datetime(series.astype(str).str.strip(), format='%Y%m%d %H:%M:%S', errors='coerce')
+                
+                # 通常の日付変換を試みる
+                result = pd.to_datetime(series, errors='coerce')
+                
+                # 変換成功率と日付の妥当性をチェック
+                valid_count = result.notna().sum()
+                
+                # 変換された日付が妥当な範囲（1990年〜2100年）かチェック
+                if valid_count > 0:
+                    valid_dates = result.dropna()
+                    min_year = valid_dates.dt.year.min()
+                    max_year = valid_dates.dt.year.max()
+                    
+                    # 1970年付近の日付が多い場合は変換が間違っている可能性
+                    dates_in_1970 = ((valid_dates.dt.year >= 1969) & (valid_dates.dt.year <= 1971)).sum()
+                    if dates_in_1970 / len(valid_dates) > 0.5:
+                        # 大半が1970年付近 = 変換が間違っている
+                        valid_count = 0  # 他の形式を試す
+                    elif min_year < 1990 or max_year > 2100:
+                        # 日付が異常な範囲 = 変換が間違っている可能性
+                        valid_count = 0
+                
+                if total_count > 0 and valid_count / total_count < 0.5:
+                    # 50%以上が変換失敗した場合、他の形式を試す
+                    
+                    # 数値に変換できるかチェック
+                    numeric_series = pd.to_numeric(series, errors='coerce')
+                    numeric_valid = numeric_series.notna().sum()
+                    
+                    if numeric_valid / total_count > 0.5:
+                        # 数値として有効な場合
+                        sample_value = numeric_series.dropna().iloc[0] if len(numeric_series.dropna()) > 0 else 0
+                        
+                        if 20000101 <= sample_value <= 20991231:
+                            # YYYYMMDD形式の数値（20240101）
+                            result = pd.to_datetime(numeric_series.astype(int).astype(str), format='%Y%m%d', errors='coerce')
+                        elif 40000 < sample_value < 60000:
+                            # Excelシリアル値の可能性（40000=2009年、60000=2064年）
+                            # Excelの基準日は1899-12-30
+                            result = pd.to_datetime(numeric_series, unit='D', origin='1899-12-30', errors='coerce')
+                        elif 1000000000 < sample_value < 2000000000:
+                            # Unixタイムスタンプ（秒）の可能性
+                            result = pd.to_datetime(numeric_series, unit='s', errors='coerce')
+                        elif 1000000000000 < sample_value < 2000000000000:
+                            # Unixタイムスタンプ（ミリ秒）の可能性
+                            result = pd.to_datetime(numeric_series, unit='ms', errors='coerce')
+                
+                return result
+            
             # === 日付変換 ===
             booking_col = schema_map.get("booking_date")
             stay_col = schema_map.get("stay_date")
             
             if booking_col and booking_col in df_work.columns:
-                df_work[booking_col] = pd.to_datetime(df_work[booking_col], errors='coerce')
+                df_work[booking_col] = convert_date_column(df_work[booking_col])
             
             if stay_col and stay_col in df_work.columns:
-                df_work[stay_col] = pd.to_datetime(df_work[stay_col], errors='coerce')
-                stats["date_range"] = {
-                    "start": df_work[stay_col].min().isoformat() if pd.notna(df_work[stay_col].min()) else None,
-                    "end": df_work[stay_col].max().isoformat() if pd.notna(df_work[stay_col].max()) else None
-                }
+                df_work[stay_col] = convert_date_column(df_work[stay_col])
+                # 有効な日付のみで範囲を計算
+                valid_dates = df_work[stay_col].dropna()
+                if len(valid_dates) > 0:
+                    stats["date_range"] = {
+                        "start": valid_dates.min().isoformat() if pd.notna(valid_dates.min()) else None,
+                        "end": valid_dates.max().isoformat() if pd.notna(valid_dates.max()) else None
+                    }
             
             # === キャンセル率計算 ===
             status_col = schema_map.get("status")
             if status_col and status_col in df_work.columns:
-                # キャンセルを示すキーワード
-                cancel_keywords = ['キャンセル', 'cancel', 'cancelled', 'canceled', '取消']
-                df_work['is_cancelled'] = df_work[status_col].astype(str).str.contains(
-                    '|'.join(cancel_keywords),
+                # キャンセルを示すキーワード（様々な表現に対応）
+                # 部分一致で検索するパターン
+                cancel_patterns = [
+                    # 日本語（ひらがな・カタカナ・漢字）
+                    'キャンセル', 'ｷｬﾝｾﾙ', 'きゃんせる',
+                    '取消', '取り消し', '取りけし',
+                    '無効', '中止', '削除',
+                    # 英語（大文字・小文字両方）
+                    'cancel', 'cancelled', 'canceled', 'cancellation',
+                    # 略語・記号
+                    'CXL', 'CX',
+                ]
+                
+                # 完全一致で検索する値（ステータスが単一の値の場合）
+                exact_cancel_values = [
+                    'キャンセル', '取消', '取り消し', 'cancel', 'cancelled', 'canceled',
+                    'CANCEL', 'CANCELLED', 'CANCELED', 'CXL', 'CX', '無効', '中止',
+                    '×', '✕', 'X',
+                ]
+                
+                status_values = df_work[status_col].astype(str).str.strip()
+                
+                # 完全一致チェック
+                is_exact_match = status_values.str.lower().isin([v.lower() for v in exact_cancel_values])
+                
+                # 部分一致チェック（より広い検出）
+                is_partial_match = status_values.str.contains(
+                    '|'.join(cancel_patterns),
                     case=False,
-                    na=False
+                    na=False,
+                    regex=True
                 )
+                
+                # 完全一致または部分一致でキャンセル判定
+                df_work['is_cancelled'] = is_exact_match | is_partial_match
                 
                 total_count = len(df_work)
                 cancelled_count = df_work['is_cancelled'].sum()
@@ -242,9 +354,25 @@ class AnalysisService(BaseCSVService):
             # === 価格統計（キャンセルを除く、宿泊人数あたり単価） ===
             price_col = schema_map.get("total_price")
             if price_col and price_col in df_confirmed.columns:
-                df_confirmed[price_col] = pd.to_numeric(df_confirmed[price_col], errors='coerce')
+                # 価格の文字列クリーニング（カンマ、円マーク、¥マークを除去）
+                def clean_price(value):
+                    if pd.isna(value):
+                        return None
+                    str_val = str(value).strip()
+                    # 空文字列チェック
+                    if not str_val:
+                        return None
+                    # 円マーク、¥マーク、カンマ、スペースを除去
+                    str_val = re.sub(r'[¥￥円,、\s]', '', str_val)
+                    # 数値以外の文字が残っている場合はNone
+                    if not str_val or not re.match(r'^-?\d+\.?\d*$', str_val):
+                        return None
+                    return float(str_val)
+                
+                df_confirmed['_cleaned_price'] = df_confirmed[price_col].apply(clean_price)
+                df_confirmed['_cleaned_price'] = pd.to_numeric(df_confirmed['_cleaned_price'], errors='coerce')
                 # 0以下の値を除外
-                valid_prices = df_confirmed[df_confirmed[price_col] > 0][price_col]
+                valid_prices = df_confirmed[df_confirmed['_cleaned_price'] > 0]['_cleaned_price']
                 
                 if len(valid_prices) > 0:
                     # 基本の価格統計（合計金額）
@@ -261,9 +389,9 @@ class AnalysisService(BaseCSVService):
                     # 宿泊人数あたりの単価を計算
                     if guests_col and guests_col in df_confirmed.columns:
                         # 価格と人数の両方が有効なデータのみ抽出
-                        valid_data = df_confirmed[(df_confirmed[price_col] > 0) & (df_confirmed[guests_col] > 0)].copy()
+                        valid_data = df_confirmed[(df_confirmed['_cleaned_price'] > 0) & (df_confirmed[guests_col] > 0)].copy()
                         if len(valid_data) > 0:
-                            valid_data['price_per_guest'] = valid_data[price_col] / valid_data[guests_col]
+                            valid_data['price_per_guest'] = valid_data['_cleaned_price'] / valid_data[guests_col]
                             price_per_guest = valid_data['price_per_guest']
                             
                             stats["price_stats"]["per_guest_average"] = round(price_per_guest.mean(), 0) if pd.notna(price_per_guest.mean()) else None
@@ -334,6 +462,15 @@ class AnalysisService(BaseCSVService):
                         # どちらにも該当しない場合
                         return ('unknown', area_str)
                     
+                    # 都道府県を抽出する関数
+                    def extract_prefecture(area_str):
+                        """エリア文字列から都道府県名を抽出"""
+                        area_str = str(area_str).strip()
+                        for pref in region_mapping.keys():
+                            if pref in area_str:
+                                return pref
+                        return None
+                    
                     valid_areas_copy = valid_areas.copy()
                     valid_areas_copy['area_type'], valid_areas_copy['region_or_country'] = zip(
                         *valid_areas_copy[area_col].apply(get_region_or_country)
@@ -343,6 +480,12 @@ class AnalysisService(BaseCSVService):
                     domestic_data = valid_areas_copy[valid_areas_copy['area_type'] == 'domestic']
                     region_counts = domestic_data['region_or_country'].value_counts().to_dict()
                     region_distribution = {str(k): int(v) for k, v in region_counts.items()}
+                    
+                    # 国内の都道府県別分布を追加
+                    domestic_data_copy = domestic_data.copy()
+                    domestic_data_copy['prefecture'] = domestic_data_copy[area_col].apply(extract_prefecture)
+                    prefecture_counts = domestic_data_copy['prefecture'].value_counts().to_dict()
+                    prefecture_distribution = {str(k): int(v) for k, v in prefecture_counts.items() if k is not None}
                     
                     # 海外の国別分布
                     overseas_data = valid_areas_copy[valid_areas_copy['area_type'] == 'overseas']
@@ -358,6 +501,7 @@ class AnalysisService(BaseCSVService):
                         "domestic_count": int(len(domestic_data)),
                         "overseas_count": int(len(overseas_data)),
                         "region_distribution": region_distribution,
+                        "prefecture_distribution": prefecture_distribution,  # 都道府県別を追加
                         "overseas_distribution": overseas_distribution,
                         "note": "キャンセルを除く確定予約のみ"
                     }
@@ -367,7 +511,9 @@ class AnalysisService(BaseCSVService):
                         stats["guest_area_stats"]["unknown_count"] = int(unknown_count)
         
         except Exception as e:
-            print(f"統計計算エラー: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"統計計算エラー: {e}", exc_info=True)
         
         # すべての値をJSON serializable に変換
         stats = self._convert_to_json_serializable(stats)

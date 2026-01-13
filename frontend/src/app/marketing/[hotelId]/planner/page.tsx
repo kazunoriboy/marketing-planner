@@ -672,7 +672,7 @@ export default function PlannerPage() {
                         <select
                           value={numPlans}
                           onChange={(e) => setNumPlans(Number(e.target.value))}
-                          className="bg-white/5 border border-white/10 rounded-lg p-2 text-white text-sm"
+                          className="bg-slate-800 border border-white/10 rounded-lg p-2 text-white text-sm [&>option]:bg-slate-800 [&>option]:text-white"
                         >
                           <option value={1}>1件</option>
                           <option value={3}>3件</option>
@@ -1107,7 +1107,7 @@ export default function PlannerPage() {
                           <select
                             value={numPlans}
                             onChange={(e) => setNumPlans(Number(e.target.value))}
-                            className="bg-white/5 border border-white/10 rounded-lg p-2 text-white text-sm"
+                            className="bg-slate-800 border border-white/10 rounded-lg p-2 text-white text-sm [&>option]:bg-slate-800 [&>option]:text-white"
                           >
                             <option value={1}>1件</option>
                             <option value={3}>3件</option>

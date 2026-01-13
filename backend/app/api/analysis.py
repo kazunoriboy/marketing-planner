@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import Session, select
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+import json
+import logging
+import traceback
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
-from app.models import Hotel, AnalysisSession, FacilityAdmin, FacilityAdminHotel
+from app.models import Hotel, AnalysisSession, FacilityAdmin, FacilityAdminHotel, CSVUploadHistory
 from app.schemas.analysis import (
     HotelCreate,
     HotelResponse,
@@ -20,13 +23,36 @@ from app.schemas.analysis import (
     Persona,
     PersonaEditRequest,
     PersonaEditResponse,
+    CSVUploadHistoryResponse,
+    CSVUploadHistoryListResponse,
+    CSVHistoryDeleteResponse,
 )
-from app.services.csv_analyzer import CSVAnalyzer
 from app.services.analysis_service import AnalysisService
 from app.services.review_service import get_review_service
+from app.services.csv_history_service import CSVHistoryService
 from app.auth.dependencies import get_current_facility_admin, require_hotel_access
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+logger = logging.getLogger(__name__)
+
+
+def ensure_dict(data) -> dict:
+    """
+    データが文字列の場合はJSONとしてパースしてdictに変換
+    """
+    if data is None:
+        return {}
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+            if isinstance(parsed, dict):
+                return parsed
+            return {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 # ============================================
@@ -44,6 +70,8 @@ async def analyze_customer_data_authenticated(
     顧客データ（CSV）を分析（認証付き）
     
     - CSVファイルをアップロード
+    - 履歴として保存（過去データと合算）
+    - データ期間の重複をチェック
     - スキーマを自動推定
     - 統計情報を計算
     - AIによるインサイトを生成
@@ -67,40 +95,91 @@ async def analyze_customer_data_authenticated(
         # ファイルを読み込み
         file_content = await file.read()
         
-        # CSV分析サービスを初期化
-        analyzer = CSVAnalyzer()
-        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        # 履歴サービスを初期化
+        history_service = CSVHistoryService(session)
+        
+        # ファイルハッシュを計算して重複チェック
+        file_hash = history_service.calculate_file_hash(file_content)
+        duplicate = history_service.check_duplicate_file(hotel_id, file_hash)
+        if duplicate:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"このファイルは既にアップロードされています（{duplicate.filename}、{duplicate.upload_date.strftime('%Y-%m-%d')}）"
+            )
+        
+        # CSV分析サービスを初期化（AnalysisServiceに統一）
+        analysis_service = AnalysisService()
         
         # 分析実行
-        statistics, insights = await analyzer.analyze_csv(file_content, llm_client)
+        statistics, insights = await analysis_service.analyze_csv(file_content)
         
-        # 分析セッションを作成または更新
-        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
-        existing_session = session.exec(statement).first()
+        # 統計データを確実にdictに変換
+        statistics = ensure_dict(statistics)
+        logger.info(f"Statistics type after ensure_dict: {type(statistics)}")
         
-        if existing_session:
-            existing_session.csv_statistics = statistics
-            existing_session.csv_insights = insights
-            analysis_session = existing_session
-        else:
-            analysis_session = AnalysisSession(
-                hotel_id=hotel_id,
-                csv_statistics=statistics,
-                csv_insights=insights
-            )
-            session.add(analysis_session)
+        # データ期間を抽出
+        date_range_raw = statistics.get("date_range", {})
+        logger.info(f"date_range_raw type: {type(date_range_raw)}, value: {date_range_raw}")
+        date_range = ensure_dict(date_range_raw)
+        period_start = None
+        period_end = None
+        period_overlap_warning = None
+        
+        if date_range.get("stay_date_start"):
+            try:
+                period_start = datetime.strptime(date_range["stay_date_start"], "%Y-%m-%d")
+            except:
+                pass
+        if date_range.get("stay_date_end"):
+            try:
+                period_end = datetime.strptime(date_range["stay_date_end"], "%Y-%m-%d")
+            except:
+                pass
+        
+        # 期間重複チェック
+        if period_start and period_end:
+            overlapping = history_service.check_period_overlap(hotel_id, period_start, period_end)
+            if overlapping:
+                overlap_files = ", ".join([f"{h.filename}（{h.data_period_start.strftime('%Y-%m-%d')}〜{h.data_period_end.strftime('%Y-%m-%d')}）" for h in overlapping])
+                period_overlap_warning = f"データ期間が重複しています: {overlap_files}"
+        
+        # 履歴に追加
+        record_count = statistics.get("total_records", 0)
+        history_service.add_upload_history(
+            hotel_id=hotel_id,
+            filename=filename,
+            file_hash=file_hash,
+            statistics=statistics,
+            record_count=record_count,
+            data_period_start=period_start,
+            data_period_end=period_end
+        )
+        
+        # 全履歴を合算してAnalysisSessionを更新
+        analysis_session = history_service.update_analysis_session_statistics(hotel_id)
+        
+        # インサイトを更新（合算後の統計で再生成）
+        merged_stats = ensure_dict(analysis_session.csv_statistics)
+        insights = await analysis_service.generate_marketing_insights(merged_stats)
+        analysis_session.csv_insights = insights
         
         session.commit()
         session.refresh(analysis_session)
         
         return CSVAnalysisResponse(
             session_id=analysis_session.id,
-            statistics=statistics,
+            statistics=merged_stats,
             insights=insights,
-            created_at=analysis_session.created_at
+            created_at=analysis_session.created_at,
+            upload_count=analysis_session.csv_upload_count,
+            period_overlap_warning=period_overlap_warning
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"[customer] 分析エラー: {str(e)}")
+        logger.error(f"[customer] スタックトレース:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"分析エラー: {str(e)}")
 
 
@@ -115,6 +194,8 @@ async def upload_and_analyze_csv_authenticated(
     顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版、認証付き）
     
     - CSVファイルをアップロード
+    - 履歴として保存（過去データと合算）
+    - データ期間の重複をチェック
     - エンコーディング自動判別
     - AIによるスキーマ推定
     - 統計情報を計算
@@ -142,40 +223,181 @@ async def upload_and_analyze_csv_authenticated(
         # ファイルを読み込み
         file_content = await file.read()
         
+        # 履歴サービスを初期化
+        history_service = CSVHistoryService(session)
+        
+        # ファイルハッシュを計算して重複チェック
+        file_hash = history_service.calculate_file_hash(file_content)
+        duplicate = history_service.check_duplicate_file(hotel_id, file_hash)
+        if duplicate:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"このファイルは既にアップロードされています（{duplicate.filename}、{duplicate.upload_date.strftime('%Y-%m-%d')}）"
+            )
+        
         # 新しいAnalysisServiceを使用
         analysis_service = AnalysisService()
         
         # 分析実行
         statistics, insights = await analysis_service.analyze_csv(file_content)
         
-        # 分析セッションを作成または更新
-        statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
-        existing_session = session.exec(statement).first()
+        # 統計データを確実にdictに変換
+        statistics = ensure_dict(statistics)
+        logger.info(f"[upload-csv] Statistics type after ensure_dict: {type(statistics)}")
         
-        if existing_session:
-            existing_session.csv_statistics = statistics
-            existing_session.csv_insights = insights
-            analysis_session = existing_session
-        else:
-            analysis_session = AnalysisSession(
-                hotel_id=hotel_id,
-                csv_statistics=statistics,
-                csv_insights=insights
-            )
-            session.add(analysis_session)
+        # データ期間を抽出
+        date_range_raw = statistics.get("date_range", {})
+        logger.info(f"[upload-csv] date_range_raw type: {type(date_range_raw)}, value: {date_range_raw}")
+        date_range = ensure_dict(date_range_raw)
+        period_start = None
+        period_end = None
+        period_overlap_warning = None
+        
+        if date_range.get("stay_date_start"):
+            try:
+                period_start = datetime.strptime(date_range["stay_date_start"], "%Y-%m-%d")
+            except:
+                pass
+        if date_range.get("stay_date_end"):
+            try:
+                period_end = datetime.strptime(date_range["stay_date_end"], "%Y-%m-%d")
+            except:
+                pass
+        
+        # 期間重複チェック
+        if period_start and period_end:
+            overlapping = history_service.check_period_overlap(hotel_id, period_start, period_end)
+            if overlapping:
+                overlap_files = ", ".join([f"{h.filename}（{h.data_period_start.strftime('%Y-%m-%d')}〜{h.data_period_end.strftime('%Y-%m-%d')}）" for h in overlapping])
+                period_overlap_warning = f"データ期間が重複しています: {overlap_files}"
+        
+        # 履歴に追加
+        record_count = statistics.get("total_records", 0)
+        history_service.add_upload_history(
+            hotel_id=hotel_id,
+            filename=filename,
+            file_hash=file_hash,
+            statistics=statistics,
+            record_count=record_count,
+            data_period_start=period_start,
+            data_period_end=period_end
+        )
+        
+        # 全履歴を合算してAnalysisSessionを更新
+        analysis_session = history_service.update_analysis_session_statistics(hotel_id)
+        
+        # インサイトを更新（合算後の統計で再生成）
+        merged_stats = ensure_dict(analysis_session.csv_statistics)
+        insights = await analysis_service.generate_marketing_insights(merged_stats)
+        analysis_session.csv_insights = insights
         
         session.commit()
         session.refresh(analysis_session)
         
         return CSVAnalysisResponse(
             session_id=analysis_session.id,
-            statistics=statistics,
+            statistics=merged_stats,
             insights=insights,
-            created_at=analysis_session.created_at
+            created_at=analysis_session.created_at,
+            upload_count=analysis_session.csv_upload_count,
+            period_overlap_warning=period_overlap_warning
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"[upload-csv] 分析エラー: {str(e)}")
+        logger.error(f"[upload-csv] スタックトレース:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"分析エラー: {str(e)}")
+
+
+@router.get("/hotels/{hotel_id}/csv-history", response_model=CSVUploadHistoryListResponse)
+async def get_csv_upload_history(
+    hotel_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    CSVアップロード履歴を取得（認証付き）
+    
+    過去にアップロードしたCSVファイルの一覧を取得
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    history_service = CSVHistoryService(session)
+    histories = history_service.get_upload_histories(hotel_id)
+    
+    return CSVUploadHistoryListResponse(
+        hotel_id=hotel_id,
+        histories=[
+            CSVUploadHistoryResponse(
+                id=h.id,
+                hotel_id=h.hotel_id,
+                filename=h.filename,
+                upload_date=h.upload_date,
+                record_count=h.record_count,
+                data_period_start=h.data_period_start,
+                data_period_end=h.data_period_end,
+                is_migrated=h.is_migrated,
+                notes=h.notes
+            )
+            for h in histories
+        ],
+        total_count=len(histories)
+    )
+
+
+@router.delete("/hotels/{hotel_id}/csv-history/{history_id}", response_model=CSVHistoryDeleteResponse)
+async def delete_csv_upload_history(
+    hotel_id: int,
+    history_id: int,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    CSVアップロード履歴を削除（認証付き）
+    
+    特定のCSVデータを削除し、統計を再計算
+    """
+    # 宿泊施設の存在確認
+    hotel = session.get(Hotel, hotel_id)
+    if not hotel:
+        raise HTTPException(status_code=404, detail="宿泊施設が見つかりません")
+    
+    # 履歴の存在確認
+    history = session.get(CSVUploadHistory, history_id)
+    if not history or history.hotel_id != hotel_id:
+        raise HTTPException(status_code=404, detail="CSVアップロード履歴が見つかりません")
+    
+    history_service = CSVHistoryService(session)
+    
+    # 履歴を削除
+    history_service.delete_upload_history(history_id)
+    
+    # 統計を再計算
+    analysis_session = history_service.update_analysis_session_statistics(hotel_id)
+    
+    # インサイトを再生成
+    csv_stats = ensure_dict(analysis_session.csv_statistics)
+    if csv_stats:
+        analysis_service = AnalysisService()
+        insights = await analysis_service.generate_marketing_insights(csv_stats)
+        analysis_session.csv_insights = insights
+    else:
+        analysis_session.csv_insights = None
+    
+    session.commit()
+    
+    remaining_count = len(history_service.get_upload_histories(hotel_id))
+    
+    return CSVHistoryDeleteResponse(
+        deleted_id=history_id,
+        remaining_count=remaining_count,
+        statistics=csv_stats
+    )
 
 
 @router.post("/hotels/{hotel_id}/market", response_model=MarketResearchResponse)
@@ -257,7 +479,7 @@ async def get_analysis_session(
     return {
         "session_id": analysis_session.id,
         "hotel_id": hotel_id,
-        "csv_statistics": analysis_session.csv_statistics,
+        "csv_statistics": ensure_dict(analysis_session.csv_statistics),
         "csv_insights": analysis_session.csv_insights,
         "competitors_list": analysis_session.competitors_list,
         "reviews_summary": analysis_session.reviews_summary,
@@ -349,12 +571,11 @@ async def analyze_customer_data(
         # ファイルを読み込み
         file_content = await file.read()
         
-        # CSV分析サービスを初期化
-        analyzer = CSVAnalyzer()
-        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        # CSV分析サービスを初期化（AnalysisServiceに統一）
+        analysis_service = AnalysisService()
         
         # 分析実行
-        statistics, insights = await analyzer.analyze_csv(file_content, llm_client)
+        statistics, insights = await analysis_service.analyze_csv(file_content)
         
         # 分析セッションを作成または更新
         # 既存のセッションがあるか確認
@@ -800,8 +1021,10 @@ async def generate_personas(
         )
     
     # 分析データがあるか確認
-    has_csv_data = analysis_session.csv_statistics and len(analysis_session.csv_statistics) > 0
-    has_review_data = analysis_session.reviews_summary and len(analysis_session.reviews_summary) > 0
+    csv_stats = ensure_dict(analysis_session.csv_statistics)
+    reviews_summary = ensure_dict(analysis_session.reviews_summary)
+    has_csv_data = bool(csv_stats)
+    has_review_data = bool(reviews_summary)
     
     if not has_csv_data and not has_review_data:
         raise HTTPException(
@@ -815,9 +1038,9 @@ async def generate_personas(
         personas = await _generate_personas_with_llm(
             llm_client=llm_client,
             hotel=hotel,
-            csv_statistics=analysis_session.csv_statistics if has_csv_data else None,
+            csv_statistics=csv_stats if has_csv_data else None,
             csv_insights=analysis_session.csv_insights if has_csv_data else None,
-            reviews_summary=analysis_session.reviews_summary if has_review_data else None,
+            reviews_summary=reviews_summary if has_review_data else None,
             num_personas=num_personas
         )
         

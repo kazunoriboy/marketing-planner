@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare, Sparkles, User, Briefcase, Target, Heart, Wallet, Search, AlertTriangle, MapPin, Edit3, X, Send } from "lucide-react";
+import { Upload, Users, Loader2, CheckCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Clock, Star, DollarSign, FileText, Link2, ExternalLink, RefreshCw, MessageSquare, Sparkles, User, Briefcase, Target, Heart, Wallet, Search, AlertTriangle, MapPin, Edit3, X, Send, Trash2, History, ChevronDown, ChevronUp } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, AnalysisSession, ReviewUrlsUpdate, Persona } from "@/lib/api";
+import { marketingApi, AnalysisSession, ReviewUrlsUpdate, Persona, CSVUploadHistory } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -56,6 +56,7 @@ function formatPercent(num: number): string {
 
 // 統計値を表示するコンポーネント
 function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
+  const [areaViewMode, setAreaViewMode] = useState<"region" | "prefecture">("region");
   const config = STAT_LABELS[statKey] || { label: statKey, icon: FileText };
   const Icon = config.icon;
 
@@ -91,27 +92,37 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
         );
       }
 
-      // cancellation_stats
+      // cancellation_stats - 複数の形式に対応
       if (statKey === "cancellation_stats") {
+        // 新形式 (total_bookings) または旧形式 (confirmed_count + cancelled_count) に対応
+        const totalBookings = (obj.total_bookings as number) ?? 
+          ((obj.confirmed_count as number ?? 0) + (obj.cancelled_count as number ?? 0));
+        const cancelledBookings = (obj.cancelled_bookings as number) ?? (obj.cancelled_count as number);
+        // cancellation_rate は 0.0-1.0 または cancellation_rate_percent (0-100) に対応
+        let cancellationRate = obj.cancellation_rate as number | undefined;
+        if (cancellationRate === undefined && obj.cancellation_rate_percent !== undefined) {
+          cancellationRate = (obj.cancellation_rate_percent as number) / 100;
+        }
+        
         return (
           <div className="space-y-1">
-            {obj.total_bookings !== undefined && (
+            {totalBookings > 0 && (
               <p className="text-white">
                 <span className="text-slate-400 text-sm">総予約数: </span>
-                {formatNumber(obj.total_bookings as number)}
+                {formatNumber(totalBookings)}
               </p>
             )}
-            {obj.cancelled_bookings !== undefined && (
+            {cancelledBookings !== undefined && (
               <p className="text-white">
                 <span className="text-slate-400 text-sm">キャンセル数: </span>
-                {formatNumber(obj.cancelled_bookings as number)}
+                {formatNumber(cancelledBookings)}
               </p>
             )}
-            {obj.cancellation_rate !== undefined && (
+            {cancellationRate !== undefined && (
               <p className="text-white">
                 <span className="text-slate-400 text-sm">キャンセル率: </span>
                 <span className="text-red-400 font-semibold">
-                  {formatPercent(obj.cancellation_rate as number)}
+                  {formatPercent(cancellationRate)}
                 </span>
               </p>
             )}
@@ -249,21 +260,43 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
         );
       }
 
-      // top_plans - プラン名と件数
+      // top_plans - プラン名と件数（リスト形式・辞書形式の両方に対応）
       if (statKey === "top_plans") {
-        const entries = Object.entries(obj).slice(0, 5);
+        // データを正規化: [{name: string, count: number}] の形式に変換
+        let planEntries: { name: string; count: number }[] = [];
+        
+        if (Array.isArray(value)) {
+          // リスト形式: [{"plan_name": "...", "count": ...}]
+          planEntries = (value as Array<{ plan_name?: string; name?: string; count?: number }>)
+            .map((item) => ({
+              name: item.plan_name || item.name || "",
+              count: item.count || 0,
+            }))
+            .filter((item) => item.name)
+            .slice(0, 5);
+        } else {
+          // 辞書形式: {"プラン名": 件数}
+          planEntries = Object.entries(obj)
+            .map(([name, count]) => ({
+              name,
+              count: typeof count === "number" ? count : 0,
+            }))
+            .filter((item) => item.name && typeof item.count === "number")
+            .slice(0, 5);
+        }
+        
         return (
           <div className="space-y-2">
-            {entries.map(([plan, count], index) => (
-              <div key={plan} className="flex items-start gap-2">
+            {planEntries.map((plan, index) => (
+              <div key={plan.name} className="flex items-start gap-2">
                 <span className="text-purple-400 font-bold text-sm min-w-[20px]">
                   {index + 1}.
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm truncate" title={plan}>
-                    {plan}
+                  <p className="text-white text-sm truncate" title={plan.name}>
+                    {plan.name}
                   </p>
-                  <p className="text-slate-400 text-xs">{formatNumber(count as number)}件</p>
+                  <p className="text-slate-400 text-xs">{formatNumber(plan.count)}件</p>
                 </div>
               </div>
             ))}
@@ -290,9 +323,15 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
       // guest_area_stats - 予約者エリア統計
       if (statKey === "guest_area_stats") {
         const regionDist = (obj.region_distribution as Record<string, number>) || {};
+        const prefectureDist = (obj.prefecture_distribution as Record<string, number>) || {};
         const overseasDist = (obj.overseas_distribution as Record<string, number>) || {};
         const domesticCount = (obj.domestic_count as number) || 0;
         const overseasCount = (obj.overseas_count as number) || 0;
+        
+        // 表示する国内データを選択
+        const domesticData = areaViewMode === "region" ? regionDist : prefectureDist;
+        const domesticLabel = areaViewMode === "region" ? "地方別" : "都道府県別";
+        
         return (
           <div className="space-y-3">
             {/* 国内/海外の割合 */}
@@ -309,16 +348,42 @@ function StatCard({ statKey, value }: { statKey: string; value: unknown }) {
               </div>
             )}
             
-            {/* 地方別分布（国内） */}
-            {Object.keys(regionDist).length > 0 && (
+            {/* 地方別/都道府県別 切り替えボタン */}
+            {(Object.keys(regionDist).length > 0 || Object.keys(prefectureDist).length > 0) && (
+              <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
+                <button
+                  onClick={() => setAreaViewMode("region")}
+                  className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                    areaViewMode === "region"
+                      ? "bg-cyan-500/20 text-cyan-400 font-medium"
+                      : "text-slate-400 hover:text-slate-300"
+                  }`}
+                >
+                  地方別
+                </button>
+                <button
+                  onClick={() => setAreaViewMode("prefecture")}
+                  className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                    areaViewMode === "prefecture"
+                      ? "bg-cyan-500/20 text-cyan-400 font-medium"
+                      : "text-slate-400 hover:text-slate-300"
+                  }`}
+                >
+                  都道府県別
+                </button>
+              </div>
+            )}
+            
+            {/* 国内分布（地方別 or 都道府県別） */}
+            {Object.keys(domesticData).length > 0 && (
               <div>
-                <p className="text-cyan-400 text-xs mb-2">▼ 国内 地方別予約数</p>
-                <div className="space-y-1">
-                  {Object.entries(regionDist)
+                <p className="text-cyan-400 text-xs mb-2">▼ 国内 {domesticLabel}予約数</p>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {Object.entries(domesticData)
                     .sort((a, b) => b[1] - a[1])
-                    .map(([region, count]) => (
-                      <div key={region} className="flex justify-between items-center">
-                        <span className="text-slate-400 text-sm">{region}</span>
+                    .map(([area, count]) => (
+                      <div key={area} className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">{area}</span>
                         <span className="text-white font-medium">{formatNumber(count)}</span>
                       </div>
                     ))}
@@ -664,7 +729,13 @@ export default function PersonaPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [periodOverlapWarning, setPeriodOverlapWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // CSV履歴関連のstate
+  const [csvHistories, setCsvHistories] = useState<CSVUploadHistory[]>([]);
+  const [showCsvHistory, setShowCsvHistory] = useState(false);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<number | null>(null);
 
   // 口コミURL関連のstate
   const [reviewUrls, setReviewUrls] = useState<Record<string, string>>({});
@@ -683,10 +754,11 @@ export default function PersonaPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [sessionData, urlsData, personasData] = await Promise.all([
+        const [sessionData, urlsData, personasData, historyData] = await Promise.all([
           marketingApi.getAnalysisSession(hotelId),
           marketingApi.getReviewUrls(hotelId).catch(() => null),
           marketingApi.getPersonas(hotelId).catch(() => null),
+          marketingApi.getCSVUploadHistory(hotelId).catch(() => null),
         ]);
         setSession(sessionData);
         if (urlsData?.review_urls) {
@@ -696,6 +768,9 @@ export default function PersonaPage() {
         }
         if (personasData?.personas) {
           setPersonas(personasData.personas);
+        }
+        if (historyData?.histories) {
+          setCsvHistories(historyData.histories);
         }
       } catch (error) {
         console.error("Failed to load session:", error);
@@ -713,6 +788,7 @@ export default function PersonaPage() {
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(false);
+    setPeriodOverlapWarning(null);
 
     try {
       const result = await marketingApi.analyzeCustomerCSV(hotelId, file);
@@ -724,9 +800,20 @@ export default function PersonaPage() {
       } : null);
       setUploadSuccess(true);
       
-      // Reload full session data
-      const sessionData = await marketingApi.getAnalysisSession(hotelId);
+      // 期間重複警告があれば表示
+      if (result.period_overlap_warning) {
+        setPeriodOverlapWarning(result.period_overlap_warning);
+      }
+      
+      // Reload full session data and CSV history
+      const [sessionData, historyData] = await Promise.all([
+        marketingApi.getAnalysisSession(hotelId),
+        marketingApi.getCSVUploadHistory(hotelId),
+      ]);
       setSession(sessionData);
+      if (historyData?.histories) {
+        setCsvHistories(historyData.histories);
+      }
     } catch (error) {
       console.error("Upload failed:", error);
       setUploadError(error instanceof Error ? error.message : "アップロードに失敗しました");
@@ -735,6 +822,34 @@ export default function PersonaPage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+    }
+  };
+
+  // CSV履歴を削除
+  const handleDeleteCsvHistory = async (historyId: number) => {
+    if (!confirm("このCSVデータを削除しますか？統計情報が再計算されます。")) return;
+    
+    setDeletingHistoryId(historyId);
+    try {
+      const result = await marketingApi.deleteCSVUploadHistory(hotelId, historyId);
+      
+      // 履歴リストから削除
+      setCsvHistories(prev => prev.filter(h => h.id !== historyId));
+      
+      // セッションの統計を更新
+      setSession(prev => prev ? {
+        ...prev,
+        csv_statistics: result.statistics,
+      } : null);
+      
+      // セッションデータを再読み込み
+      const sessionData = await marketingApi.getAnalysisSession(hotelId);
+      setSession(sessionData);
+    } catch (error) {
+      console.error("Delete failed:", error);
+      alert("削除に失敗しました");
+    } finally {
+      setDeletingHistoryId(null);
     }
   };
 
@@ -877,6 +992,88 @@ export default function PersonaPage() {
               <div className="mt-4 p-4 bg-green-500/20 rounded-lg flex items-center gap-3">
                 <CheckCircle className="w-5 h-5 text-green-400" />
                 <span className="text-green-300">分析が完了しました</span>
+              </div>
+            )}
+
+            {periodOverlapWarning && (
+              <div className="mt-4 p-4 bg-yellow-500/20 rounded-lg flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-yellow-300 font-medium">データ期間の重複</span>
+                  <p className="text-yellow-200/80 text-sm mt-1">{periodOverlapWarning}</p>
+                  <p className="text-yellow-200/60 text-xs mt-1">重複データがある場合、統計が正確でない可能性があります。不要なデータは下の履歴から削除できます。</p>
+                </div>
+              </div>
+            )}
+
+            {/* CSVアップロード履歴 */}
+            {csvHistories.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <button
+                  onClick={() => setShowCsvHistory(!showCsvHistory)}
+                  className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors"
+                >
+                  <History className="w-4 h-4" />
+                  <span className="text-sm font-medium">
+                    アップロード履歴（{csvHistories.length}件）
+                  </span>
+                  {showCsvHistory ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+
+                {showCsvHistory && (
+                  <div className="mt-4 space-y-2">
+                    {csvHistories.map((history) => (
+                      <div
+                        key={history.id}
+                        className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            <span className="text-white text-sm truncate">
+                              {history.filename}
+                            </span>
+                            {history.is_migrated && (
+                              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded">
+                                移行データ
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-xs text-slate-400">
+                            <span>{new Date(history.upload_date).toLocaleDateString("ja-JP")}</span>
+                            <span>{history.record_count.toLocaleString()}件</span>
+                            {history.data_period_start && history.data_period_end && (
+                              <span>
+                                {new Date(history.data_period_start).toLocaleDateString("ja-JP")}
+                                〜
+                                {new Date(history.data_period_end).toLocaleDateString("ja-JP")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteCsvHistory(history.id)}
+                          disabled={deletingHistoryId === history.id}
+                          className="p-2 text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                          title="削除"
+                        >
+                          {deletingHistoryId === history.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                    <p className="text-xs text-slate-500 mt-2">
+                      ※ 複数のCSVデータは自動的に合算されて統計が計算されます
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
