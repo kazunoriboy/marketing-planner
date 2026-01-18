@@ -746,9 +746,9 @@ async def analyze_market(
 
 
 async def _research_competitors(address: str, radius_km: float, llm_client) -> dict:
-    """競合をリサーチ（現時点ではAIベースの分析）"""
+    """競合をリサーチ（Grounding with Google Searchを使用）"""
     prompt = f"""
-{address}周辺{radius_km}km圏内の宿泊施設の競合状況について、一般的な市場動向を分析してください。
+{address}周辺{radius_km}km圏内の宿泊施設の競合状況について、最新のWeb情報を調べて分析してください。
 
 以下の項目を含むJSON形式で出力してください：
 {{
@@ -763,16 +763,25 @@ async def _research_competitors(address: str, radius_km: float, llm_client) -> d
 }}
 """
     
-    response = await llm_client.generate_structured_output(
+    # Groundingを有効化して生成
+    response, grounding_metadata = await llm_client.generate_structured_output_with_grounding(
         user_prompt=prompt,
-        system_prompt="あなたは宿泊業界のマーケットリサーチャーです。"
+        system_prompt="あなたは宿泊業界のマーケットリサーチャーです。最新のWeb情報を活用して正確な分析を行ってください。",
+        enable_grounding=True
     )
     
     import json, re
     try:
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group())
+            result = json.loads(json_match.group())
+            # Groundingメタデータを追加（デバッグ・検証用）
+            if grounding_metadata:
+                result['_grounding'] = {
+                    'search_queries': grounding_metadata.get('web_search_queries', []),
+                    'sources': grounding_metadata.get('grounding_chunks', [])
+                }
+            return result
         return json.loads(response)
     except:
         return {
@@ -784,9 +793,9 @@ async def _research_competitors(address: str, radius_km: float, llm_client) -> d
 
 
 async def _analyze_reviews(address: str, llm_client) -> dict:
-    """口コミを分析（現時点ではAIベースの分析）"""
+    """口コミを分析（Grounding with Google Searchを使用）"""
     prompt = f"""
-{address}エリアの宿泊施設に対する一般的な口コミ傾向を分析してください。
+{address}エリアの宿泊施設に対する口コミ傾向について、最新のWeb情報を調べて分析してください。
 
 以下の項目を含むJSON形式で出力してください：
 {{
@@ -796,16 +805,25 @@ async def _analyze_reviews(address: str, llm_client) -> dict:
 }}
 """
     
-    response = await llm_client.generate_structured_output(
+    # Groundingを有効化して生成
+    response, grounding_metadata = await llm_client.generate_structured_output_with_grounding(
         user_prompt=prompt,
-        system_prompt="あなたは口コミ分析の専門家です。"
+        system_prompt="あなたは口コミ分析の専門家です。最新のWeb情報を活用して正確な分析を行ってください。",
+        enable_grounding=True
     )
     
     import json, re
     try:
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group())
+            result = json.loads(json_match.group())
+            # Groundingメタデータを追加（デバッグ・検証用）
+            if grounding_metadata:
+                result['_grounding'] = {
+                    'search_queries': grounding_metadata.get('web_search_queries', []),
+                    'sources': grounding_metadata.get('grounding_chunks', [])
+                }
+            return result
         return json.loads(response)
     except:
         return {
@@ -816,9 +834,9 @@ async def _analyze_reviews(address: str, llm_client) -> dict:
 
 
 async def _analyze_regional_trends(address: str, llm_client) -> str:
-    """地域トレンドを分析"""
+    """地域トレンドを分析（Grounding with Google Searchを使用）"""
     prompt = f"""
-{address}エリアにおける宿泊業界のトレンドと市場機会について、800文字程度で分析してください。
+{address}エリアにおける宿泊業界のトレンドと市場機会について、最新のWeb情報を調べて800文字程度で分析してください。
 
 以下の観点を含めてください：
 1. 地域の特性と強み
@@ -827,10 +845,13 @@ async def _analyze_regional_trends(address: str, llm_client) -> str:
 4. 推奨される戦略方向性
 """
     
-    response = await llm_client.generate_text(
+    # Groundingを有効化して生成
+    response, grounding_metadata = await llm_client.generate_text_with_grounding(
         user_prompt=prompt,
-        system_prompt="あなたは地域観光と宿泊業界のトレンドアナリストです。",
-        max_tokens=2000
+        system_prompt="あなたは地域観光と宿泊業界のトレンドアナリストです。最新のWeb情報を活用して正確な分析を行ってください。",
+        max_tokens=2000,
+        temperature=1.0,  # Grounding使用時は1.0推奨
+        enable_grounding=True
     )
     
     return response

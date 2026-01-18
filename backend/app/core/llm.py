@@ -97,6 +97,159 @@ class LLMClient:
             temperature=0.3  # より決定論的な出力のため温度を低く
         )
     
+    async def generate_text_with_grounding(
+        self,
+        user_prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 1.0,
+        enable_grounding: bool = True
+    ) -> Tuple[str, Optional[dict]]:
+        """
+        Grounding with Google Searchを有効化したテキスト生成
+        
+        Args:
+            user_prompt: ユーザープロンプト
+            system_prompt: システムプロンプト（オプション）
+            max_tokens: 最大トークン数
+            temperature: 温度パラメータ（Grounding使用時は1.0推奨）
+            enable_grounding: Groundingを有効化するか
+        
+        Returns:
+            (生成されたテキスト, groundingメタデータ) のタプル
+        """
+        def _generate_with_grounding_sync():
+            """同期的なgrounding処理（google.genaiパッケージを使用）"""
+            from google import genai as genai_new
+            from google.genai import types as genai_types
+            
+            # クライアントを初期化（API Keyは環境変数から自動取得）
+            client = genai_new.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+            
+            # Groundingツールを設定
+            tools = None
+            if enable_grounding:
+                tools = [genai_types.Tool(google_search=genai_types.GoogleSearch())]
+            
+            # 生成設定
+            config = genai_types.GenerateContentConfig(
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+                tools=tools if enable_grounding else None,
+                system_instruction=system_prompt if system_prompt else None
+            )
+            
+            # コンテンツ生成
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=user_prompt,
+                config=config
+            )
+            
+            # レスポンスからテキストを抽出
+            text = ""
+            if hasattr(response, 'text') and response.text:
+                text = response.text
+            elif hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if candidate and hasattr(candidate, 'content'):
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text += part.text
+                    elif hasattr(candidate.content, 'text') and candidate.content.text:
+                        text = candidate.content.text
+            
+            # Groundingメタデータを抽出
+            grounding_metadata = None
+            if enable_grounding and hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if candidate and hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
+                    grounding_metadata = {
+                        'web_search_queries': [],
+                        'grounding_chunks': [],
+                        'grounding_supports': []
+                    }
+                    
+                    # 検索クエリを抽出
+                    web_search_queries = getattr(candidate.grounding_metadata, 'web_search_queries', None)
+                    if web_search_queries is not None:
+                        try:
+                            # web_search_queriesがイテレート可能か確認
+                            if hasattr(web_search_queries, '__iter__') and not isinstance(web_search_queries, (str, bytes)):
+                                grounding_metadata['web_search_queries'] = [
+                                    q.query if hasattr(q, 'query') else str(q)
+                                    for q in web_search_queries
+                                ]
+                            else:
+                                grounding_metadata['web_search_queries'] = []
+                        except (TypeError, AttributeError) as e:
+                            grounding_metadata['web_search_queries'] = []
+                    
+                    # ソース情報を抽出
+                    grounding_chunks = getattr(candidate.grounding_metadata, 'grounding_chunks', None)
+                    if grounding_chunks is not None:
+                        grounding_metadata['grounding_chunks'] = []
+                        try:
+                            # grounding_chunksがイテレート可能か確認
+                            if hasattr(grounding_chunks, '__iter__') and not isinstance(grounding_chunks, (str, bytes)):
+                                for chunk in grounding_chunks:
+                                    if isinstance(chunk, dict):
+                                        grounding_metadata['grounding_chunks'].append({
+                                            'uri': chunk.get('uri', ''),
+                                            'title': chunk.get('title', '')
+                                        })
+                                    else:
+                                        grounding_metadata['grounding_chunks'].append({
+                                            'uri': getattr(chunk, 'uri', ''),
+                                            'title': getattr(chunk, 'title', '')
+                                        })
+                        except (TypeError, AttributeError) as e:
+                            grounding_metadata['grounding_chunks'] = []
+            
+            return text, grounding_metadata
+        
+        try:
+            # スレッドプールで同期処理を実行（イベントループをブロックしない）
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(_image_executor, _generate_with_grounding_sync)
+            return result
+                
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            raise Exception(f"LLM生成エラー: {str(e)}\n詳細: {error_details}")
+    
+    async def generate_structured_output_with_grounding(
+        self,
+        user_prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        enable_grounding: bool = True
+    ) -> Tuple[str, Optional[dict]]:
+        """
+        Grounding with Google Searchを有効化した構造化JSON出力生成
+        
+        Args:
+            user_prompt: ユーザープロンプト
+            system_prompt: システムプロンプト（オプション）
+            max_tokens: 最大トークン数
+            enable_grounding: Groundingを有効化するか
+        
+        Returns:
+            (JSON文字列, groundingメタデータ) のタプル
+        """
+        # JSON出力を明示的に指示
+        enhanced_prompt = f"{user_prompt}\n\n必ずJSON形式で出力してください。マークダウンのコードブロックは使わず、純粋なJSONのみを返してください。"
+        
+        return await self.generate_text_with_grounding(
+            user_prompt=enhanced_prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=1.0,  # Grounding使用時は1.0推奨
+            enable_grounding=enable_grounding
+        )
+    
     async def analyze_image(
         self,
         image_data: bytes,
