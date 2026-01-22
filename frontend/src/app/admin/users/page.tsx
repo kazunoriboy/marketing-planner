@@ -5,6 +5,8 @@ import {
   adminApi,
   FacilityAdminResponse,
   ApiError,
+  CompanyResponse,
+  FacilityAdminCreateRequest,
 } from "@/lib/api";
 import { validatePassword } from "@/lib/auth";
 import {
@@ -18,7 +20,11 @@ import {
   Check,
 } from "lucide-react";
 
-type UserWithCount = FacilityAdminResponse & { hotel_count: number };
+type UserWithCount = FacilityAdminResponse & { 
+  hotel_count: number;
+  company_id?: number;
+  company_name?: string;
+};
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserWithCount[]>([]);
@@ -100,6 +106,9 @@ export default function AdminUsersPage() {
                 ユーザー
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                企業グループ
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 施設数
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -114,7 +123,7 @@ export default function AdminUsersPage() {
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   className="px-6 py-12 text-center text-sm text-gray-500"
                 >
                   <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
@@ -143,6 +152,13 @@ export default function AdminUsersPage() {
                         </div>
                         <div className="text-sm text-gray-500">{user.email}</div>
                       </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {user.company_name || (
+                        <span className="text-gray-400">未所属</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -246,14 +262,57 @@ function CreateUserModal({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [companyId, setCompanyId] = useState<number | undefined>(undefined);
+  const [companies, setCompanies] = useState<CompanyResponse[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [showNewCompanyInput, setShowNewCompanyInput] = useState(false);
+  const [newCompanyName, setNewCompanyName] = useState("");
   const [error, setError] = useState("");
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadCompanies();
+  }, []);
+
+  const loadCompanies = async () => {
+    setLoadingCompanies(true);
+    try {
+      const data = await adminApi.listCompanies();
+      setCompanies(data);
+    } catch (error) {
+      console.error("Failed to load companies:", error);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
 
   const handlePasswordChange = (value: string) => {
     setPassword(value);
     const { errors } = validatePassword(value);
     setPasswordErrors(errors);
+  };
+
+  const handleCreateCompany = async () => {
+    if (!newCompanyName.trim()) {
+      setError("企業グループ名を入力してください");
+      return;
+    }
+
+    try {
+      const company = await adminApi.createCompany({ name: newCompanyName });
+      setCompanies([...companies, company]);
+      setCompanyId(company.id);
+      setShowNewCompanyInput(false);
+      setNewCompanyName("");
+      setError("");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.detail);
+      } else {
+        setError("企業グループの作成に失敗しました");
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,7 +328,13 @@ function CreateUserModal({
     setLoading(true);
 
     try {
-      const user = await adminApi.createUser({ name, email, password });
+      const request: FacilityAdminCreateRequest = {
+        name,
+        email,
+        password,
+        company_id: companyId,
+      };
+      const user = await adminApi.createUser(request);
       onCreated(user);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -356,6 +421,69 @@ function CreateUserModal({
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                企業グループ（オプション）
+              </label>
+              {loadingCompanies ? (
+                <div className="text-sm text-gray-500">読み込み中...</div>
+              ) : (
+                <>
+                  <select
+                    value={companyId || ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCompanyId(value ? parseInt(value) : undefined);
+                      setShowNewCompanyInput(false);
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">企業グループを選択しない</option>
+                    {companies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {company.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNewCompanyInput(!showNewCompanyInput);
+                        if (!showNewCompanyInput) {
+                          setCompanyId(undefined);
+                        }
+                      }}
+                      className="text-sm text-indigo-600 hover:text-indigo-500"
+                    >
+                      {showNewCompanyInput ? "キャンセル" : "+ 新規企業グループを作成"}
+                    </button>
+                  </div>
+                  {showNewCompanyInput && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="企業グループ名"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateCompany}
+                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                      >
+                        作成
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    同じ企業グループに所属する管理者は、互いに作成した施設に自動的にアクセスできます
+                  </p>
+                </>
+              )}
+            </div>
+
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 type="button"
@@ -390,8 +518,61 @@ function EditUserModal({
   onUpdated: (user: FacilityAdminResponse) => void;
 }) {
   const [name, setName] = useState(user.name);
+  const [companyId, setCompanyId] = useState<number | undefined | null>(undefined);
+  const [companies, setCompanies] = useState<CompanyResponse[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [showNewCompanyInput, setShowNewCompanyInput] = useState(false);
+  const [newCompanyName, setNewCompanyName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadCompanies();
+    loadUserDetail();
+  }, []);
+
+  const loadCompanies = async () => {
+    setLoadingCompanies(true);
+    try {
+      const data = await adminApi.listCompanies();
+      setCompanies(data);
+    } catch (error) {
+      console.error("Failed to load companies:", error);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
+
+  const loadUserDetail = async () => {
+    try {
+      const userDetail = await adminApi.getUser(user.id);
+      setCompanyId(userDetail.company_id ?? null);
+    } catch (error) {
+      console.error("Failed to load user detail:", error);
+    }
+  };
+
+  const handleCreateCompany = async () => {
+    if (!newCompanyName.trim()) {
+      setError("企業グループ名を入力してください");
+      return;
+    }
+
+    try {
+      const company = await adminApi.createCompany({ name: newCompanyName });
+      setCompanies([...companies, company]);
+      setCompanyId(company.id);
+      setShowNewCompanyInput(false);
+      setNewCompanyName("");
+      setError("");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.detail);
+      } else {
+        setError("企業グループの作成に失敗しました");
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -399,7 +580,11 @@ function EditUserModal({
     setLoading(true);
 
     try {
-      const updated = await adminApi.updateUser(user.id, { name });
+      const updateData: { name: string; company_id?: number | null } = { name };
+      if (companyId !== undefined) {
+        updateData.company_id = companyId === null ? 0 : companyId; // 0を送信するとNULLに設定される
+      }
+      const updated = await adminApi.updateUser(user.id, updateData);
       onUpdated(updated);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -463,6 +648,69 @@ function EditUserModal({
               <p className="mt-1 text-xs text-gray-500">
                 メールアドレスは変更できません
               </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                企業グループ
+              </label>
+              {loadingCompanies ? (
+                <div className="text-sm text-gray-500">読み込み中...</div>
+              ) : (
+                <>
+                  <select
+                    value={companyId ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCompanyId(value ? parseInt(value) : null);
+                      setShowNewCompanyInput(false);
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">企業グループを選択しない</option>
+                    {companies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {company.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNewCompanyInput(!showNewCompanyInput);
+                        if (!showNewCompanyInput) {
+                          setCompanyId(null);
+                        }
+                      }}
+                      className="text-sm text-indigo-600 hover:text-indigo-500"
+                    >
+                      {showNewCompanyInput ? "キャンセル" : "+ 新規企業グループを作成"}
+                    </button>
+                  </div>
+                  {showNewCompanyInput && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="企業グループ名"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateCompany}
+                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                      >
+                        作成
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    同じ企業グループに所属する管理者は、互いに作成した施設に自動的にアクセスできます
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="flex justify-end space-x-3 mt-6">

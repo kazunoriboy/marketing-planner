@@ -10,7 +10,7 @@ import traceback
 from app.core.database import create_db_and_tables
 from app.core.config import settings
 from app.api import analysis, planning, creative, operation
-from app.api import admin_auth, admin_users, facility_auth, facility_hotels
+from app.api import admin_auth, admin_users, admin_companies, facility_auth, facility_hotels
 
 # ロギング設定
 def setup_logging():
@@ -126,6 +126,7 @@ app.include_router(operation.router)
 # APIルーターの登録（認証関連）
 app.include_router(admin_auth.router)
 app.include_router(admin_users.router)
+app.include_router(admin_companies.router)
 app.include_router(facility_auth.router)
 app.include_router(facility_hotels.router)
 

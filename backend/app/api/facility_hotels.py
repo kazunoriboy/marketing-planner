@@ -9,6 +9,7 @@ from app.core.database import get_session
 from app.core.llm import get_llm_client
 from app.models import FacilityAdmin, FacilityAdminHotel, Hotel, FacilityAdminHotelRole
 from app.auth.dependencies import get_current_facility_admin
+from sqlmodel import select
 
 router = APIRouter(prefix="/facility/hotels", tags=["Facility Hotels"])
 
@@ -79,15 +80,23 @@ async def list_my_hotels(
     """
     自分の施設一覧を取得
     
-    - 紐付けられている施設のみ返す
+    - 直接紐付けられている施設
+    - 同じ企業グループの他の管理者が作成した施設（自動的に紐付けを作成）
     """
+    # 直接紐付けられている施設を取得
     permissions = session.exec(
         select(FacilityAdminHotel).where(
             FacilityAdminHotel.facility_admin_id == facility_admin.id
         )
     ).all()
     
+    # 既に紐付けられている施設IDのセット
+    linked_hotel_ids = {perm.hotel_id for perm in permissions}
+    
     hotels = []
+    hotel_permissions_map = {}
+    
+    # 直接紐付けられている施設を追加
     for perm in permissions:
         hotel = session.exec(
             select(Hotel).where(Hotel.id == perm.hotel_id)
@@ -106,6 +115,63 @@ async def list_my_hotels(
                 hotel_assets=hotel.hotel_assets or {},
                 role=perm.role,
             ))
+            hotel_permissions_map[hotel.id] = perm.role
+    
+    # 同じ企業グループの他の管理者が作成した施設を取得
+    if facility_admin.company_id is not None:
+        # 同じ企業グループの全管理者を取得
+        same_company_admins = session.exec(
+            select(FacilityAdmin).where(
+                FacilityAdmin.company_id == facility_admin.company_id
+            )
+        ).all()
+        
+        same_company_admin_ids = {admin.id for admin in same_company_admins}
+        
+        # 同じ企業グループの管理者が作成した施設を取得
+        # （他の管理者に紐付けられている施設 = そのグループの施設）
+        other_permissions = session.exec(
+            select(FacilityAdminHotel).where(
+                FacilityAdminHotel.facility_admin_id.in_(same_company_admin_ids)
+            )
+        ).all()
+        
+        # ユニークな施設IDのセットを作成（重複を避けるため）
+        unique_hotel_ids = set()
+        for perm in other_permissions:
+            if perm.hotel_id not in linked_hotel_ids:
+                unique_hotel_ids.add(perm.hotel_id)
+        
+        # まだ紐付けられていない施設を追加
+        for hotel_id in unique_hotel_ids:
+            hotel = session.exec(
+                select(Hotel).where(Hotel.id == hotel_id)
+            ).first()
+            if hotel:
+                # 自動的に紐付けを作成（owner権限）
+                new_permission = FacilityAdminHotel(
+                    facility_admin_id=facility_admin.id,
+                    hotel_id=hotel.id,
+                    role=FacilityAdminHotelRole.owner,
+                )
+                session.add(new_permission)
+                linked_hotel_ids.add(hotel.id)
+                
+                hotels.append(HotelResponse(
+                    id=hotel.id,
+                    name=hotel.name,
+                    address=hotel.address,
+                    postal_code=hotel.postal_code,
+                    phone=hotel.phone,
+                    website=hotel.website,
+                    features=hotel.features,
+                    strengths=hotel.strengths,
+                    cv_url=hotel.cv_url,
+                    hotel_assets=hotel.hotel_assets or {},
+                    role=FacilityAdminHotelRole.owner,
+                ))
+        
+        session.commit()
     
     return hotels
 
@@ -137,7 +203,7 @@ async def create_hotel(
     session.commit()
     session.refresh(hotel)
     
-    # オーナー権限を付与
+    # 作成者にオーナー権限を付与
     permission = FacilityAdminHotel(
         facility_admin_id=facility_admin.id,
         hotel_id=hotel.id,
@@ -145,6 +211,35 @@ async def create_hotel(
     )
     
     session.add(permission)
+    
+    # 同じ企業グループの全管理者に自動的に紐付け（全員owner権限）
+    if facility_admin.company_id is not None:
+        # 同じcompany_idを持つ全管理者を取得
+        same_company_admins = session.exec(
+            select(FacilityAdmin).where(
+                FacilityAdmin.company_id == facility_admin.company_id,
+                FacilityAdmin.id != facility_admin.id  # 作成者を除く
+            )
+        ).all()
+        
+        # 各管理者に施設を紐付け
+        for admin in same_company_admins:
+            # 既に紐付けられているかチェック
+            existing = session.exec(
+                select(FacilityAdminHotel).where(
+                    FacilityAdminHotel.facility_admin_id == admin.id,
+                    FacilityAdminHotel.hotel_id == hotel.id
+                )
+            ).first()
+            
+            if not existing:
+                admin_permission = FacilityAdminHotel(
+                    facility_admin_id=admin.id,
+                    hotel_id=hotel.id,
+                    role=FacilityAdminHotelRole.owner,
+                )
+                session.add(admin_permission)
+    
     session.commit()
     
     return HotelResponse(

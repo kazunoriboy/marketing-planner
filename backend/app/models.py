@@ -30,6 +30,20 @@ class FacilityAdminHotelRole(str, Enum):
 # 認証関連モデル
 # ============================================
 
+class Company(SQLModel, table=True):
+    """企業グループテーブル"""
+    __tablename__ = "companies"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # リレーション
+    facility_admins: list["FacilityAdmin"] = Relationship(back_populates="company")
+
+
 class SystemAdmin(SQLModel, table=True):
     """システム管理者テーブル"""
     __tablename__ = "system_admins"
@@ -53,11 +67,13 @@ class FacilityAdmin(SQLModel, table=True):
     password_hash: str
     name: str
     is_active: bool = Field(default=True)
+    company_id: Optional[int] = Field(default=None, foreign_key="companies.id", index=True)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
     # リレーション
+    company: Optional["Company"] = Relationship(back_populates="facility_admins")
     hotel_permissions: list["FacilityAdminHotel"] = Relationship(back_populates="facility_admin")
 
 

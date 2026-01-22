@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Shield,
+  Building2,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -77,6 +78,7 @@ export default function AdminLayout({
       icon: LayoutDashboard,
     },
     { name: "ユーザー管理", href: "/admin/users", icon: Users },
+    { name: "企業グループ管理", href: "/admin/companies", icon: Building2 },
   ];
 
   return (

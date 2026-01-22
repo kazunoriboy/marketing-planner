@@ -77,6 +77,32 @@ export interface FacilityAdminCreateRequest {
   email: string;
   name: string;
   password: string;
+  company_id?: number;
+}
+
+export interface CompanyResponse {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyDetailResponse extends CompanyResponse {
+  admin_count: number;
+  admins: Array<{
+    id: number;
+    email: string;
+    name: string;
+    is_active: boolean;
+  }>;
+}
+
+export interface CompanyCreateRequest {
+  name: string;
+}
+
+export interface CompanyUpdateRequest {
+  name: string;
 }
 
 export class ApiError extends Error {
@@ -281,8 +307,8 @@ export const adminApi = {
    */
   async getUser(
     userId: number
-  ): Promise<FacilityAdminResponse & { hotels: HotelInfo[] }> {
-    return apiRequest<FacilityAdminResponse & { hotels: HotelInfo[] }>(
+  ): Promise<FacilityAdminResponse & { hotels: HotelInfo[]; company_id?: number }> {
+    return apiRequest<FacilityAdminResponse & { hotels: HotelInfo[]; company_id?: number }>(
       `/admin/users/${userId}`,
       {},
       "admin"
@@ -294,7 +320,7 @@ export const adminApi = {
    */
   async updateUser(
     userId: number,
-    data: { name?: string; is_active?: boolean }
+    data: { name?: string; is_active?: boolean; company_id?: number | null }
   ): Promise<FacilityAdminResponse> {
     return apiRequest<FacilityAdminResponse>(
       `/admin/users/${userId}`,
@@ -342,6 +368,77 @@ export const adminApi = {
   async removeHotel(userId: number, hotelId: number): Promise<void> {
     await apiRequest<void>(
       `/admin/users/${userId}/hotels/${hotelId}`,
+      {
+        method: "DELETE",
+      },
+      "admin"
+    );
+  },
+
+  /**
+   * 企業グループ一覧を取得
+   */
+  async listCompanies(
+    skip = 0,
+    limit = 100
+  ): Promise<CompanyResponse[]> {
+    return apiRequest<CompanyResponse[]>(
+      `/admin/companies?skip=${skip}&limit=${limit}`,
+      {},
+      "admin"
+    );
+  },
+
+  /**
+   * 企業グループを作成
+   */
+  async createCompany(
+    request: CompanyCreateRequest
+  ): Promise<CompanyResponse> {
+    return apiRequest<CompanyResponse>(
+      "/admin/companies",
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      },
+      "admin"
+    );
+  },
+
+  /**
+   * 企業グループ詳細を取得
+   */
+  async getCompany(companyId: number): Promise<CompanyDetailResponse> {
+    return apiRequest<CompanyDetailResponse>(
+      `/admin/companies/${companyId}`,
+      {},
+      "admin"
+    );
+  },
+
+  /**
+   * 企業グループを更新
+   */
+  async updateCompany(
+    companyId: number,
+    request: CompanyUpdateRequest
+  ): Promise<CompanyResponse> {
+    return apiRequest<CompanyResponse>(
+      `/admin/companies/${companyId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(request),
+      },
+      "admin"
+    );
+  },
+
+  /**
+   * 企業グループを削除
+   */
+  async deleteCompany(companyId: number): Promise<void> {
+    await apiRequest<void>(
+      `/admin/companies/${companyId}`,
       {
         method: "DELETE",
       },

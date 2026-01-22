@@ -79,6 +79,7 @@ class FacilityAdminCreateRequest(BaseModel):
     email: EmailStr
     name: str
     password: str
+    company_id: Optional[int] = None
     
     @field_validator("password")
     @classmethod
@@ -93,6 +94,7 @@ class FacilityAdminUpdateRequest(BaseModel):
     """施設管理者更新リクエスト"""
     name: Optional[str] = None
     is_active: Optional[bool] = None
+    company_id: Optional[int] = None
 
 
 class FacilityAdminHotelRole(str, Enum):
