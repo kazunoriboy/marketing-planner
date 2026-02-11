@@ -646,6 +646,24 @@ export const facilityApi = {
   },
 
   /**
+   * 施設画像の種別・説明を更新
+   */
+  async updateHotelImage(
+    hotelId: number,
+    imageKey: string,
+    data: { type?: string; description?: string }
+  ): Promise<FacilityImageItem> {
+    return apiRequest<FacilityImageItem>(
+      `/facility/hotels/${hotelId}/images/${encodeURIComponent(imageKey)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+      "facility"
+    );
+  },
+
+  /**
    * 施設の資産情報を取得
    */
   async getHotelAssets(hotelId: number): Promise<HotelAssets> {
