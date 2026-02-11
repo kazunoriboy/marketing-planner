@@ -131,6 +131,9 @@ class Hotel(SQLModel, table=True):
     # }
     hotel_assets: dict = Field(default_factory=dict, sa_column=Column(JSON))
     
+    # 施設画像（最大10件）。各要素: key, url, description, type, order
+    facility_images: list = Field(default_factory=list, sa_column=Column(JSON))
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
