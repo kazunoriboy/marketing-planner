@@ -12,51 +12,10 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 from unittest.mock import patch, AsyncMock
 
-from app.models import Hotel, AnalysisSession, FacilityAdmin, FacilityAdminHotel, FacilityAdminHotelRole
-from app.auth.password import hash_password
+from app.models import Hotel, AnalysisSession, FacilityAdmin
 
 
-# ============================================
-# フィクスチャ
-# ============================================
-
-@pytest.fixture(name="facility_admin_with_hotel")
-def facility_admin_with_hotel_fixture(session: Session, sample_hotel: Hotel):
-    """施設管理者と施設の紐付けを作成"""
-    # 施設管理者を作成
-    admin = FacilityAdmin(
-        email="test@facility.com",
-        password_hash=hash_password("testpassword"),
-        name="テスト施設管理者",
-        is_active=True
-    )
-    session.add(admin)
-    session.commit()
-    session.refresh(admin)
-    
-    # 施設との紐付けを作成
-    permission = FacilityAdminHotel(
-        facility_admin_id=admin.id,
-        hotel_id=sample_hotel.id,
-        role=FacilityAdminHotelRole.owner
-    )
-    session.add(permission)
-    session.commit()
-    
-    return admin
-
-
-@pytest.fixture(name="auth_headers")
-def auth_headers_fixture(client: TestClient, facility_admin_with_hotel: FacilityAdmin):
-    """認証済みヘッダーを取得"""
-    response = client.post(
-        "/facility/auth/login",
-        json={"email": "test@facility.com", "password": "testpassword"}
-    )
-    assert response.status_code == 200
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
+# facility_admin_with_hotel, auth_headers は conftest.py で定義
 
 # ============================================
 # ペルソナ取得テスト
@@ -86,7 +45,7 @@ def test_get_personas_with_data(
     session: Session
 ):
     """ペルソナがある状態で取得"""
-    # ペルソナ付きの分析セッションを作成
+    # ペルソナ付きの分析セッションを作成（Persona スキーマは rationale 必須）
     analysis_session = AnalysisSession(
         hotel_id=sample_hotel.id,
         csv_statistics={"total_records": 100},
@@ -103,9 +62,10 @@ def test_get_personas_with_data(
                 "information_source": ["じゃらん"],
                 "needs": ["清潔感"],
                 "pain_points": ["忙しい"],
-                "description": "テスト"
+                "description": "テスト",
+                "rationale": "テスト用の根拠",
             }
-        ]
+        ],
     )
     session.add(analysis_session)
     session.commit()
@@ -149,7 +109,7 @@ def test_generate_personas_success(
     sample_analysis_session: AnalysisSession
 ):
     """ペルソナ生成成功"""
-    # モックのレスポンスを設定
+    # モックのレスポンスを設定（Persona スキーマは rationale 必須）
     mock_generate.return_value = [
         {
             "name": "田中花子",
@@ -163,7 +123,8 @@ def test_generate_personas_success(
             "information_source": ["じゃらん", "Instagram"],
             "needs": ["清潔感", "おもてなし"],
             "pain_points": ["平日は忙しい"],
-            "description": "テストペルソナ"
+            "description": "テストペルソナ",
+            "rationale": "テスト用の根拠1",
         },
         {
             "name": "佐藤太郎",
@@ -177,7 +138,8 @@ def test_generate_personas_success(
             "information_source": ["楽天トラベル"],
             "needs": ["プライベート感"],
             "pain_points": ["混雑を避けたい"],
-            "description": "テストペルソナ2"
+            "description": "テストペルソナ2",
+            "rationale": "テスト用の根拠2",
         },
         {
             "name": "山田美咲",
@@ -191,8 +153,9 @@ def test_generate_personas_success(
             "information_source": ["Instagram", "TikTok"],
             "needs": ["フォトスポット"],
             "pain_points": ["シフト制"],
-            "description": "テストペルソナ3"
-        }
+            "description": "テストペルソナ3",
+            "rationale": "テスト用の根拠3",
+        },
     ]
     
     response = client.post(
@@ -234,7 +197,7 @@ def test_edit_persona_invalid_index(
     session: Session
 ):
     """無効なインデックスでペルソナを修正しようとする"""
-    # ペルソナ付きの分析セッションを作成
+    # ペルソナ付きの分析セッションを作成（Persona スキーマは rationale 必須）
     analysis_session = AnalysisSession(
         hotel_id=sample_hotel.id,
         csv_statistics={"total_records": 100},
@@ -251,9 +214,10 @@ def test_edit_persona_invalid_index(
                 "information_source": ["じゃらん"],
                 "needs": ["清潔感"],
                 "pain_points": ["忙しい"],
-                "description": "テスト"
+                "description": "テスト",
+                "rationale": "テスト用の根拠",
             }
-        ]
+        ],
     )
     session.add(analysis_session)
     session.commit()
@@ -276,7 +240,7 @@ def test_edit_persona_success(
     session: Session
 ):
     """ペルソナ修正成功"""
-    # ペルソナ付きの分析セッションを作成
+    # ペルソナ付きの分析セッションを作成（Persona スキーマは rationale 必須）
     analysis_session = AnalysisSession(
         hotel_id=sample_hotel.id,
         csv_statistics={"total_records": 100},
@@ -293,14 +257,15 @@ def test_edit_persona_success(
                 "information_source": ["じゃらん"],
                 "needs": ["清潔感"],
                 "pain_points": ["忙しい"],
-                "description": "テスト"
+                "description": "テスト",
+                "rationale": "テスト用の根拠",
             }
-        ]
+        ],
     )
     session.add(analysis_session)
     session.commit()
-    
-    # モックのレスポンスを設定（年齢を変更）
+
+    # モックのレスポンスを設定（年齢を変更。Persona スキーマは rationale 必須）
     mock_edit.return_value = {
         "name": "田中花子",
         "age_range": "20代前半",
@@ -313,7 +278,8 @@ def test_edit_persona_success(
         "information_source": ["Instagram"],
         "needs": ["フォトスポット"],
         "pain_points": ["予算が限られている"],
-        "description": "若い世代に変更されたペルソナ"
+        "description": "若い世代に変更されたペルソナ",
+        "rationale": "テスト用の根拠（修正後）",
     }
     
     response = client.put(
@@ -364,7 +330,7 @@ def test_persona_schema():
     """Personaスキーマのバリデーション"""
     from app.schemas.analysis import Persona
     
-    # 正常なデータ
+    # 正常なデータ（Persona スキーマは rationale 必須）
     valid_persona = Persona(
         name="田中花子",
         age_range="30代",
@@ -377,7 +343,8 @@ def test_persona_schema():
         information_source=["じゃらん"],
         needs=["清潔感"],
         pain_points=["忙しい"],
-        description="テスト"
+        description="テスト",
+        rationale="テスト用の根拠（分析データに基づく）",
     )
     assert valid_persona.name == "田中花子"
     assert valid_persona.location == "東京都世田谷区"

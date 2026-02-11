@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session, create_engine
 from sqlmodel.pool import StaticPool
 from typing import Generator
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.main import app
 from app.core.database import get_session
+from app.auth.password import hash_password
 from app.models import (
     Hotel,
     AnalysisSession,
@@ -145,7 +147,8 @@ def sample_analysis_session_with_personas_fixture(session: Session, sample_hotel
                 "information_source": ["じゃらん", "Instagram"],
                 "needs": ["清潔感のある部屋", "地元食材を使った料理"],
                 "pain_points": ["平日は忙しい"],
-                "description": "テスト用ペルソナ1の説明"
+                "description": "テスト用ペルソナ1の説明",
+                "rationale": "テスト用の根拠1（分析データに基づく）",
             },
             {
                 "name": "佐藤太郎",
@@ -159,7 +162,8 @@ def sample_analysis_session_with_personas_fixture(session: Session, sample_hotel
                 "information_source": ["楽天トラベル", "口コミ"],
                 "needs": ["プライベート感", "記念日対応"],
                 "pain_points": ["混雑を避けたい"],
-                "description": "テスト用ペルソナ2の説明"
+                "description": "テスト用ペルソナ2の説明",
+                "rationale": "テスト用の根拠2（分析データに基づく）",
             },
             {
                 "name": "山田美咲",
@@ -173,8 +177,9 @@ def sample_analysis_session_with_personas_fixture(session: Session, sample_hotel
                 "information_source": ["Instagram", "TikTok"],
                 "needs": ["フォトスポット", "アメニティ充実"],
                 "pain_points": ["シフト制で予定が立てにくい"],
-                "description": "テスト用ペルソナ3の説明"
-            }
+                "description": "テスト用ペルソナ3の説明",
+                "rationale": "テスト用の根拠3（分析データに基づく）",
+            },
         ]
     )
     session.add(analysis_session)
@@ -248,6 +253,59 @@ def sample_creative_asset_fixture(session: Session, sample_marketing_plan: Marke
     session.refresh(creative_asset)
     return creative_asset
 
+
+# 施設管理者・施設画像API用フィクスチャ
+@pytest.fixture(name="facility_admin_with_hotel")
+def facility_admin_with_hotel_fixture(session: Session, sample_hotel: Hotel) -> FacilityAdmin:
+    """施設管理者と施設の紐付けを作成（施設画像APIテスト用）"""
+    admin = FacilityAdmin(
+        email="test@facility.com",
+        password_hash=hash_password("testpassword"),
+        name="テスト施設管理者",
+        is_active=True,
+    )
+    session.add(admin)
+    session.commit()
+    session.refresh(admin)
+    permission = FacilityAdminHotel(
+        facility_admin_id=admin.id,
+        hotel_id=sample_hotel.id,
+        role=FacilityAdminHotelRole.owner,
+    )
+    session.add(permission)
+    session.commit()
+    return admin
+
+
+@pytest.fixture(name="auth_headers")
+def auth_headers_fixture(client: TestClient, facility_admin_with_hotel: FacilityAdmin) -> dict:
+    """施設管理者の認証済みヘッダーを取得"""
+    response = client.post(
+        "/facility/auth/login",
+        json={"email": "test@facility.com", "password": "testpassword"},
+    )
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(name="hotel_with_facility_images")
+def hotel_with_facility_images_fixture(session: Session, sample_hotel: Hotel) -> Hotel:
+    """facility_images に1件入ったホテル（削除・更新APIテスト用）"""
+    sample_hotel.facility_images = [
+        {
+            "key": "img001",
+            "url": f"/static/hotel_images/{sample_hotel.id}/img001.jpg",
+            "description": "テスト画像",
+            "type": "exterior",
+            "order": 0,
+        }
+    ]
+    flag_modified(sample_hotel, "facility_images")
+    session.add(sample_hotel)
+    session.commit()
+    session.refresh(sample_hotel)
+    return sample_hotel
 
 
 
