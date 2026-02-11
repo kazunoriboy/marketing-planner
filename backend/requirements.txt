@@ -17,6 +17,7 @@ bcrypt
 pandas
 openpyxl
 chardet
+Pillow
 
 # HTTP Client
 httpx
