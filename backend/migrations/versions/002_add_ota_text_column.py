@@ -21,14 +21,33 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """creative_assetsテーブルにota_textカラムを追加"""
-    # カラムが存在しない場合のみ追加
-    op.add_column(
-        'creative_assets',
-        sa.Column('ota_text', postgresql.JSONB(), nullable=True, server_default='{}')
-    )
+    connection = op.get_bind()
+    column_exists = connection.execute(
+        sa.text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns
+                WHERE table_name = 'creative_assets' AND column_name = 'ota_text'
+            )
+        """)
+    ).scalar()
+    if not column_exists:
+        op.add_column(
+            'creative_assets',
+            sa.Column('ota_text', postgresql.JSONB(), nullable=True, server_default='{}')
+        )
 
 
 def downgrade() -> None:
     """ota_textカラムを削除"""
-    op.drop_column('creative_assets', 'ota_text')
+    connection = op.get_bind()
+    column_exists = connection.execute(
+        sa.text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns
+                WHERE table_name = 'creative_assets' AND column_name = 'ota_text'
+            )
+        """)
+    ).scalar()
+    if column_exists:
+        op.drop_column('creative_assets', 'ota_text')
 
