@@ -14,6 +14,7 @@ import {
   Phone,
   Globe,
   BrainCircuit,
+  ImageIcon,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -153,6 +154,17 @@ export default function FacilityHotelsPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
+                    {/* 施設画像管理へのリンク */}
+                    {(hotel.role === "owner" || hotel.role === "editor") && (
+                      <Link
+                        href={`/facility/hotels/${hotel.id}/images`}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                        title="施設の写真を管理"
+                      >
+                        <ImageIcon className="h-4 w-4 mr-1" />
+                        画像を管理
+                      </Link>
+                    )}
                     {/* マーケティングAIへのリンク */}
                     <Link
                       href={`/marketing/${hotel.id}/dashboard`}
