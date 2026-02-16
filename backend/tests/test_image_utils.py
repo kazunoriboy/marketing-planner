@@ -25,22 +25,32 @@ from app.core.image_utils import (
 class TestSaveFacilityImage:
     """save_facility_image のテスト"""
 
+    @pytest.mark.skipif(not HAS_PIL, reason="PIL not installed")
     def test_save_facility_image_returns_key_and_url(self):
-        """保存成功で (key, url) が返り、ファイルが存在することを検証"""
+        """保存成功で (key, url) が返り、WebP ファイルが存在することを検証"""
+        from io import BytesIO
+
+        from PIL import Image
+
+        # PIL でデコードできる有効な小さな JPEG を使う（WebP に変換されて保存される）
+        img = Image.new("RGB", (10, 10), color="red")
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        content = buf.getvalue()
+
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                # 最小限の JPEG 風バイト列（1バイトでも ext が .jpg なら保存される）
-                content = b"\xff\xd8\xff\xe0\x00\x10JFIF"
                 key, url = save_facility_image(1, content, ".jpg")
                 assert isinstance(key, str)
                 assert len(key) == 12
-                assert url == f"/static/hotel_images/1/{key}.jpg"
+                assert url == f"/static/hotel_images/1/{key}.webp"
                 hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
                 assert os.path.isdir(hotel_dir)
-                filepath = os.path.join(hotel_dir, f"{key}.jpg")
+                filepath = os.path.join(hotel_dir, f"{key}.webp")
                 assert os.path.isfile(filepath)
                 with open(filepath, "rb") as f:
-                    assert f.read() == content
+                    data = f.read()
+                assert data.startswith(b"RIFF") and b"WEBP" in data[:20]
 
 
 class TestDeleteFacilityImageFile:
@@ -52,7 +62,7 @@ class TestDeleteFacilityImageFile:
             hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
             os.makedirs(hotel_dir, exist_ok=True)
             key = "abc123"
-            filename = f"{key}.jpg"
+            filename = f"{key}.webp"
             filepath = os.path.join(hotel_dir, filename)
             with open(filepath, "wb") as f:
                 f.write(b"test")
@@ -67,12 +77,12 @@ class TestDeleteFacilityImageFile:
             hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
             os.makedirs(hotel_dir, exist_ok=True)
             key = "abc123"
-            filename = f"{key}.jpg"
+            filename = f"{key}.webp"
             filepath = os.path.join(hotel_dir, filename)
             with open(filepath, "wb") as f:
                 f.write(b"test")
             with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                delete_facility_image_file(1, key, "/other/path/image.jpg")
+                delete_facility_image_file(1, key, "/other/path/image.webp")
             assert os.path.isfile(filepath)
 
     def test_delete_ignores_empty_url(self):
@@ -88,7 +98,7 @@ class TestCompressImage:
 
     @pytest.mark.skipif(not HAS_PIL, reason="PIL not installed")
     def test_compress_resizes_large_image(self):
-        """長辺が FACILITY_IMAGE_MAX_SIDE を超える画像はリサイズされる"""
+        """長辺が FACILITY_IMAGE_MAX_SIDE を超える画像はリサイズされ、WebP で返る"""
         from io import BytesIO
 
         from PIL import Image
@@ -101,6 +111,7 @@ class TestCompressImage:
         result = compress_image(content, ".jpg")
         assert isinstance(result, bytes)
         assert len(result) > 0
+        assert result.startswith(b"RIFF") and b"WEBP" in result[:20]
         # リサイズ後は長辺が FACILITY_IMAGE_MAX_SIDE 以下
         out_img = Image.open(BytesIO(result))
         w, h = out_img.size

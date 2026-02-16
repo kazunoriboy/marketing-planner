@@ -128,7 +128,7 @@ class TestUploadFacilityImage:
         sample_hotel: Hotel,
     ) -> None:
         """owner がアップロードすると 201 と FacilityImageItemResponse が返る"""
-        mock_save.return_value = ("mockkey123", f"/static/hotel_images/{sample_hotel.id}/mockkey123.jpg")
+        mock_save.return_value = ("mockkey123", f"/static/hotel_images/{sample_hotel.id}/mockkey123.webp")
         response = client.post(
             f"/facility/hotels/{sample_hotel.id}/images",
             headers=auth_headers,
