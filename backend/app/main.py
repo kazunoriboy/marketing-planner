@@ -1,14 +1,17 @@
 import os
+import re
 import logging
 from logging.handlers import RotatingFileHandler
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import traceback
 
 from app.core.database import create_db_and_tables
 from app.core.config import settings
+from app.core.s3_client import get_s3_client, ensure_bucket
 from app.api import analysis, planning, creative, operation
 from app.api import admin_auth, admin_users, admin_companies, facility_auth, facility_hotels
 
@@ -75,9 +78,15 @@ async def lifespan(app: FastAPI):
     print("📊 Creating database tables...")
     create_db_and_tables()
     print("✅ Database tables created successfully")
-    
+    # S3 バケットの存在確認・作成
+    try:
+        ensure_bucket()
+        print("✅ S3 bucket ready")
+    except Exception as e:
+        logger.warning("S3 bucket check/create failed (uploads will fail until fixed): %s", e)
+
     yield
-    
+
     # 終了時の処理（必要に応じて追加）
     print("👋 Shutting down...")
 
@@ -111,6 +120,32 @@ async def log_exceptions_middleware(request: Request, call_next):
         logger.error(f"Request: {request.method} {request.url}")
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         raise
+
+# 施設画像は S3 から配信（/static マウントより前に登録）
+_FACILITY_IMAGE_FILENAME_RE = re.compile(r"^[a-f0-9]{12}\.webp$")
+
+
+@app.get("/static/hotel_images/{hotel_id}/{filename}")
+async def serve_facility_image_from_s3(hotel_id: int, filename: str):
+    """施設画像を S3 から取得して返す。失敗時は 503。"""
+    if not _FACILITY_IMAGE_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=404, detail="Not Found")
+    s3_key = f"hotel_images/{hotel_id}/{filename}"
+    try:
+        client = get_s3_client()
+        resp = client.get_object(Bucket=settings.S3_BUCKET, Key=s3_key)
+        body = resp["Body"]
+        return StreamingResponse(
+            body.iter_chunks(),
+            media_type="image/webp",
+        )
+    except Exception as e:
+        logger.exception("S3 get_object failed for %s: %s", s3_key, e)
+        raise HTTPException(
+            status_code=503,
+            detail="ストレージ接続に失敗しました",
+        ) from e
+
 
 # 静的ファイル配信（生成画像用）
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

@@ -19,6 +19,9 @@ openpyxl
 chardet
 Pillow
 
+# S3 compatible storage
+boto3
+
 # HTTP Client
 httpx
 

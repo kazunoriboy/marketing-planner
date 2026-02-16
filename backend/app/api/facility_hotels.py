@@ -543,7 +543,13 @@ async def upload_facility_image(
         )
 
     content = await file.read()
-    key, url = save_facility_image(hotel_id, content, file_ext)
+    try:
+        key, url = save_facility_image(hotel_id, content, file_ext)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ストレージ接続に失敗しました",
+        )
 
     order = max((item.get("order", 0) for item in images), default=-1) + 1
     new_item = {
@@ -611,10 +617,16 @@ async def delete_facility_image(
             detail="指定された画像が見つかりません",
         )
 
-    # 削除対象の url を取得してから実ファイルを削除
+    # 削除対象の url を取得してから S3 上のオブジェクトを削除
     removed = next((item for item in images if item.get("key") == image_key), None)
     if removed:
-        delete_facility_image_file(hotel_id, image_key, removed.get("url", ""))
+        try:
+            delete_facility_image_file(hotel_id, image_key, removed.get("url", ""))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="ストレージ接続に失敗しました",
+            )
 
     hotel.facility_images = new_images
     hotel.updated_at = datetime.utcnow()

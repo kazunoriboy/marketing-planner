@@ -10,6 +10,7 @@
 - **ORM**: SQLModel
 - **AI**: Google Gemini 2.5 Flash-Lite (Google AI API直接呼び出し)
 - **データ分析**: Pandas
+- **ストレージ**: S3互換（RustFS / 施設画像保存用）
 - **コンテナ**: Docker & Docker Compose
 
 ### アーキテクチャの特徴
@@ -54,6 +55,20 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=marketing_planner
 ```
 
+#### S3互換ストレージ（施設画像保存用）
+
+施設画像のアップロード・表示を使う場合は、`backend/.env` に以下を追加してください（Docker Compose の `storage` を使う場合の例）。
+
+```env
+# Docker 内: http://storage:9000 / ローカル単体実行: http://localhost:9000
+S3_ENDPOINT_URL=http://storage:9000
+S3_ACCESS_KEY=rustfsadmin
+S3_SECRET_KEY=rustfsadmin
+S3_BUCKET=facility-images
+```
+
+未設定のまま施設画像にアクセスすると「ストレージ接続に失敗しました」となります。`backend/env.example` にも同じ項目が記載されています。
+
 ### 2. Docker環境の起動
 
 ```bash
@@ -71,6 +86,7 @@ docker compose up -d --build
 - **APIドキュメント（Swagger）**: http://localhost:8000/docs
 - **APIドキュメント（ReDoc）**: http://localhost:8000/redoc
 - **データベース**: localhost:5432
+- **S3互換ストレージ（RustFS）コンソール**: http://localhost:9001
 
 ### 4. 開発コマンド
 

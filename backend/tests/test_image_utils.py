@@ -1,10 +1,8 @@
 """
 施設画像ヘルパー（image_utils）の単体テスト
 """
-
-import os
-import tempfile
-from unittest.mock import patch
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,74 +21,86 @@ from app.core.image_utils import (
 
 
 class TestSaveFacilityImage:
-    """save_facility_image のテスト"""
+    """save_facility_image のテスト（S3 に保存）"""
 
     @pytest.mark.skipif(not HAS_PIL, reason="PIL not installed")
     def test_save_facility_image_returns_key_and_url(self):
-        """保存成功で (key, url) が返り、WebP ファイルが存在することを検証"""
-        from io import BytesIO
-
+        """保存成功で (key, url) が返り、put_object が呼ばれることを検証"""
         from PIL import Image
 
-        # PIL でデコードできる有効な小さな JPEG を使う（WebP に変換されて保存される）
         img = Image.new("RGB", (10, 10), color="red")
         buf = BytesIO()
         img.save(buf, "JPEG", quality=85)
         content = buf.getvalue()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                key, url = save_facility_image(1, content, ".jpg")
-                assert isinstance(key, str)
-                assert len(key) == 12
-                assert url == f"/static/hotel_images/1/{key}.webp"
-                hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
-                assert os.path.isdir(hotel_dir)
-                filepath = os.path.join(hotel_dir, f"{key}.webp")
-                assert os.path.isfile(filepath)
-                with open(filepath, "rb") as f:
-                    data = f.read()
-                assert data.startswith(b"RIFF") and b"WEBP" in data[:20]
+        mock_client = MagicMock()
+        with patch("app.core.image_utils.get_s3_client", return_value=mock_client), patch(
+            "app.core.image_utils.settings"
+        ) as mock_settings:
+            mock_settings.S3_BUCKET = "facility-images"
+            key, url = save_facility_image(1, content, ".jpg")
+
+        assert isinstance(key, str)
+        assert len(key) == 12
+        assert url == f"/static/hotel_images/1/{key}.webp"
+        mock_client.put_object.assert_called_once()
+        call_kw = mock_client.put_object.call_args.kwargs
+        assert call_kw["Bucket"] == "facility-images"
+        assert call_kw["Key"] == f"hotel_images/1/{key}.webp"
+        assert call_kw["ContentType"] == "image/webp"
+        body = call_kw["Body"]
+        assert body.startswith(b"RIFF") and b"WEBP" in body[:20]
+
+    @pytest.mark.skipif(not HAS_PIL, reason="PIL not installed")
+    def test_save_facility_image_raises_on_s3_error(self):
+        """S3 put_object が失敗した場合に例外が伝播することを検証"""
+        from PIL import Image
+
+        img = Image.new("RGB", (10, 10), color="red")
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        content = buf.getvalue()
+
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = Exception("connection failed")
+        with patch("app.core.image_utils.get_s3_client", return_value=mock_client):
+            with pytest.raises(Exception, match="connection failed"):
+                save_facility_image(1, content, ".jpg")
 
 
 class TestDeleteFacilityImageFile:
-    """delete_facility_image_file のテスト"""
+    """delete_facility_image_file のテスト（S3 から削除）"""
 
-    def test_delete_removes_file(self):
-        """正しい url の場合、ファイルが削除されることを検証"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
-            os.makedirs(hotel_dir, exist_ok=True)
-            key = "abc123"
-            filename = f"{key}.webp"
-            filepath = os.path.join(hotel_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(b"test")
-            url = f"/static/hotel_images/1/{filename}"
-            with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                delete_facility_image_file(1, key, url)
-            assert not os.path.isfile(filepath)
+    def test_delete_calls_s3_delete_object(self):
+        """正しい url の場合、delete_object が呼ばれることを検証"""
+        key = "abc123"
+        filename = f"{key}.webp"
+        url = f"/static/hotel_images/1/{filename}"
+        mock_client = MagicMock()
+        with patch("app.core.image_utils.get_s3_client", return_value=mock_client), patch(
+            "app.core.image_utils.settings"
+        ) as mock_settings:
+            mock_settings.S3_BUCKET = "facility-images"
+            delete_facility_image_file(1, key, url)
+        mock_client.delete_object.assert_called_once_with(
+            Bucket="facility-images",
+            Key=f"hotel_images/1/{filename}",
+        )
 
     def test_delete_ignores_invalid_url(self):
-        """url が /static/hotel_images/ を含まない場合は削除されない"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hotel_dir = os.path.join(tmpdir, "hotel_images", "1")
-            os.makedirs(hotel_dir, exist_ok=True)
-            key = "abc123"
-            filename = f"{key}.webp"
-            filepath = os.path.join(hotel_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(b"test")
-            with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                delete_facility_image_file(1, key, "/other/path/image.webp")
-            assert os.path.isfile(filepath)
+        """url が /static/hotel_images/ を含まない場合は delete_object を呼ばない"""
+        mock_client = MagicMock()
+        with patch("app.core.image_utils.get_s3_client", return_value=mock_client):
+            delete_facility_image_file(1, "abc123", "/other/path/image.webp")
+        mock_client.delete_object.assert_not_called()
 
     def test_delete_ignores_empty_url(self):
         """url が空の場合は何もしない"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.core.image_utils._get_static_dir", return_value=tmpdir):
-                delete_facility_image_file(1, "abc", "")
-                delete_facility_image_file(1, "abc", None)  # type: ignore
+        mock_client = MagicMock()
+        with patch("app.core.image_utils.get_s3_client", return_value=mock_client):
+            delete_facility_image_file(1, "abc", "")
+            delete_facility_image_file(1, "abc", None)  # type: ignore
+        mock_client.delete_object.assert_not_called()
 
 
 class TestCompressImage:
@@ -99,11 +109,8 @@ class TestCompressImage:
     @pytest.mark.skipif(not HAS_PIL, reason="PIL not installed")
     def test_compress_resizes_large_image(self):
         """長辺が FACILITY_IMAGE_MAX_SIDE を超える画像はリサイズされ、WebP で返る"""
-        from io import BytesIO
-
         from PIL import Image
 
-        # 2000x1000 の画像を生成（長辺 2000 > 1920）
         img = Image.new("RGB", (2000, 1000), color="red")
         buf = BytesIO()
         img.save(buf, "JPEG", quality=90)
@@ -112,7 +119,6 @@ class TestCompressImage:
         assert isinstance(result, bytes)
         assert len(result) > 0
         assert result.startswith(b"RIFF") and b"WEBP" in result[:20]
-        # リサイズ後は長辺が FACILITY_IMAGE_MAX_SIDE 以下
         out_img = Image.open(BytesIO(result))
         w, h = out_img.size
         assert max(w, h) <= FACILITY_IMAGE_MAX_SIDE

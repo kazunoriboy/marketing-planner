@@ -1,11 +1,13 @@
 """
 施設画像の保存・圧縮ヘルパー
 
-1MB を超える画像はサーバ側でリサイズ・圧縮してから保存する。
+1MB を超える画像はサーバ側でリサイズ・圧縮してから S3 に保存する。
 """
-import os
 import uuid
 from io import BytesIO
+
+from app.core.config import settings
+from app.core.s3_client import get_s3_client
 
 # 1MB
 FACILITY_IMAGE_MAX_BYTES = 1048576
@@ -15,14 +17,6 @@ FACILITY_IMAGE_MAX_SIDE = 1920
 
 # WebP 圧縮品質
 WEBP_QUALITY = 85
-
-
-def _get_static_dir() -> str:
-    """backend/static の絶対パスを返す"""
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "static",
-    )
 
 
 def _image_to_webp(img: "Image.Image", quality: int = WEBP_QUALITY) -> bytes:
@@ -80,7 +74,7 @@ def _convert_to_webp(content: bytes, ext: str) -> bytes:
 
 def save_facility_image(hotel_id: int, content: bytes, ext: str) -> tuple[str, str]:
     """
-    施設画像を WebP 形式で保存し、(key, url) を返す。
+    施設画像を WebP 形式で S3 に保存し、(key, url) を返す。
 
     - 1MB 超過時はリサイズ・圧縮してから WebP で保存する。
     - 1MB 以下も WebP に変換して保存する。
@@ -95,13 +89,15 @@ def save_facility_image(hotel_id: int, content: bytes, ext: str) -> tuple[str, s
 
     key = uuid.uuid4().hex[:12]
     filename = f"{key}.webp"
-    static_dir = _get_static_dir()
-    hotel_dir = os.path.join(static_dir, "hotel_images", str(hotel_id))
-    os.makedirs(hotel_dir, exist_ok=True)
-    filepath = os.path.join(hotel_dir, filename)
+    s3_key = f"hotel_images/{hotel_id}/{filename}"
 
-    with open(filepath, "wb") as f:
-        f.write(content)
+    client = get_s3_client()
+    client.put_object(
+        Bucket=settings.S3_BUCKET,
+        Key=s3_key,
+        Body=content,
+        ContentType="image/webp",
+    )
 
     url = f"/static/hotel_images/{hotel_id}/{filename}"
     return (key, url)
@@ -109,7 +105,7 @@ def save_facility_image(hotel_id: int, content: bytes, ext: str) -> tuple[str, s
 
 def delete_facility_image_file(hotel_id: int, key: str, url: str) -> None:
     """
-    施設画像の実ファイルを削除する。
+    施設画像を S3 から削除する。
     url からファイル名を抽出して削除する。存在しない場合は何もしない。
     """
     if not url or "/static/hotel_images/" not in url:
@@ -117,10 +113,6 @@ def delete_facility_image_file(hotel_id: int, key: str, url: str) -> None:
     filename = url.split("/")[-1]
     if not filename or not filename.startswith(key):
         return
-    static_dir = _get_static_dir()
-    filepath = os.path.join(static_dir, "hotel_images", str(hotel_id), filename)
-    if os.path.exists(filepath):
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
+    s3_key = f"hotel_images/{hotel_id}/{filename}"
+    client = get_s3_client()
+    client.delete_object(Bucket=settings.S3_BUCKET, Key=s3_key)
