@@ -279,6 +279,67 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
         prompt_summary = self._format_generation_summary(image_configs, generation_log, "広告用画像")
         return image_urls, prompt_summary
 
+    async def generate_ad_images_with_references(
+        self,
+        marketing_plan: MarketingPlan,
+        llm_client,
+        hotel_id: int,
+        reference_images: Dict[str, Dict[str, object]],
+    ) -> Tuple[Dict, str]:
+        """
+        施設画像を参照として広告画像を生成する。
+
+        Args:
+            marketing_plan: マーケティングプラン
+            llm_client: 画像生成対応LLMクライアント
+            hotel_id: ホテルID
+            reference_images: 枠ごとの参照画像情報
+                例: {"display_wide": {"data": b"...", "mime_type": "image/webp", "url": "..."}}
+
+        Returns:
+            (画像URL辞書, 生成ログ) のタプル
+        """
+        image_configs = self._create_ad_image_prompts(marketing_plan)
+        image_dir = os.path.join("static", "generated_images", str(hotel_id))
+        os.makedirs(image_dir, exist_ok=True)
+
+        image_urls = {}
+        generation_log = []
+
+        for image_type, config in image_configs.items():
+            ref = reference_images.get(image_type, {})
+            ref_data = ref.get("data")
+            ref_mime = ref.get("mime_type", "image/webp")
+            if not ref_data:
+                image_urls[image_type] = {"error": "reference_not_found", "message": "参照画像が見つかりません"}
+                generation_log.append(f"{image_type}: 生成失敗 - 参照画像なし")
+                continue
+
+            try:
+                edit_prompt = self._create_ad_edit_prompt(config["prompt"], image_type, marketing_plan)
+                image_data, mime_type = await llm_client.generate_image_with_reference(
+                    prompt=edit_prompt,
+                    reference_image_data=ref_data,
+                    reference_mime_type=ref_mime,
+                    aspect_ratio=config.get("aspect_ratio", "16:9"),
+                )
+
+                ext = "png" if "png" in mime_type else "jpg"
+                filename = f"ad_{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
+                filepath = os.path.join(image_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(image_data)
+
+                image_urls[image_type] = f"/static/generated_images/{hotel_id}/{filename}"
+                generation_log.append(f"{image_type}: 生成成功（参照画像から編集）")
+            except Exception as e:
+                err = str(e)
+                image_urls[image_type] = {"error": "generation_failed", "message": f"画像生成に失敗: {err[:100]}"}
+                generation_log.append(f"{image_type}: 生成失敗 - {err[:100]}")
+
+        prompt_summary = self._format_generation_summary(image_configs, generation_log, "広告用画像（参照編集）")
+        return image_urls, prompt_summary
+
     def _create_lp_image_prompts(self, plan: MarketingPlan) -> Dict:
         """LP用画像のプロンプトを作成"""
         target_info = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else "一般"
@@ -349,6 +410,26 @@ The image should make viewers want to book immediately.""",
                 "aspect_ratio": "9:16"
             }
         }
+
+    def _create_ad_edit_prompt(self, base_prompt: str, image_type: str, plan: MarketingPlan) -> str:
+        """参照画像編集向けの広告生成プロンプトを作成"""
+        copy_map = {
+            "display_wide": "特別な休日へ",
+            "display_square": "今だけ限定",
+            "display_vertical": "癒しの温泉旅",
+        }
+        overlay_copy = copy_map.get(image_type, "今すぐ予約")
+
+        return f"""{base_prompt}
+
+Use the provided reference image as the primary visual base.
+Keep the facility identity and atmosphere recognizable.
+Add ad-positive enhancements:
+1) Embed a short Japanese promotional text naturally in the image (readable, elegant, not excessive): "{overlay_copy}".
+2) Add natural human presence (guest or staff) to increase warmth and trust, while avoiding uncanny faces.
+3) Preserve photorealistic quality suitable for hotel advertising.
+4) Avoid logos/watermarks and avoid overcrowded composition.
+"""
 
     def _format_generation_summary(self, configs: Dict, logs: list, category: str = "画像") -> str:
         """生成サマリーをフォーマット"""
@@ -841,5 +922,3 @@ The image should make viewers want to book immediately.""",
                     "features": ["特別な体験", "くつろぎの空間", "おもてなし"]
                 }
             }
-
-

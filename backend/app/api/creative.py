@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
 from sqlalchemy.orm.attributes import flag_modified
-from typing import List
+from typing import List, Dict, Tuple
 from pydantic import BaseModel
 import os
 import uuid
 import re
+import mimetypes
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
+from app.core.s3_client import get_s3_client
+from app.core.config import settings
 from app.models import MarketingPlan, CreativeAsset, AnalysisSession, FacilityAdminHotel, Hotel
 from app.schemas.creative import (
     CreativeGenerationRequest,
@@ -18,6 +21,91 @@ from app.services.creative_generator import CreativeGenerator
 from app.auth.dependencies import require_hotel_access, require_hotel_editor
 
 router = APIRouter(prefix="/api/creative", tags=["creative"])
+
+AD_IMAGE_SLOTS = ("display_wide", "display_square", "display_vertical")
+AD_IMAGE_TYPE_PREFERENCES = {
+    "display_wide": ("exterior", "lobby", "interior", "sightseeing", "other"),
+    "display_square": ("room", "bath", "cuisine", "restaurant", "interior", "other"),
+    "display_vertical": ("bath", "room", "interior", "sightseeing", "other"),
+}
+
+
+def _select_ad_reference_images(hotel: Hotel) -> Tuple[Dict[str, dict], str]:
+    """施設画像（S3配信URL）を広告枠ごとの参照画像として選定する。"""
+    images = hotel.facility_images or []
+    valid_images = []
+    for item in images:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if isinstance(url, str) and url.startswith("/static/hotel_images/"):
+            valid_images.append(item)
+
+    if not valid_images:
+        return {}, "施設画像が未登録のため、S3画像を広告枠に割り当てできませんでした。"
+
+    valid_images.sort(key=lambda x: (x.get("order", 9999), str(x.get("key", ""))))
+
+    selected: Dict[str, dict] = {}
+    used_keys = set()
+
+    for slot in AD_IMAGE_SLOTS:
+        preferences = AD_IMAGE_TYPE_PREFERENCES.get(slot, ())
+        chosen = None
+        for preferred_type in preferences:
+            for item in valid_images:
+                if item.get("type") != preferred_type:
+                    continue
+                key = item.get("key")
+                if key in used_keys:
+                    continue
+                chosen = item
+                break
+            if chosen:
+                break
+
+        if not chosen:
+            for item in valid_images:
+                key = item.get("key")
+                if key in used_keys:
+                    continue
+                chosen = item
+                break
+
+        if chosen:
+            selected[slot] = {
+                "url": chosen.get("url"),
+                "type": chosen.get("type"),
+                "description": chosen.get("description", ""),
+                "key": chosen.get("key"),
+            }
+            if chosen.get("key"):
+                used_keys.add(chosen["key"])
+
+    summary_lines = [
+        "【広告画像ソース】",
+        "S3上の施設画像（/static/hotel_images/...）を使用しました。",
+    ]
+    for slot in AD_IMAGE_SLOTS:
+        if slot in selected:
+            summary_lines.append(f"- {slot}: {selected[slot].get('url')}")
+
+    return selected, "\n".join(summary_lines)
+
+
+def _fetch_s3_image_bytes(hotel_id: int, image_url: str) -> Tuple[bytes, str]:
+    """施設画像URLからS3オブジェクトを取得して (bytes, mime_type) を返す。"""
+    if not image_url or not image_url.startswith(f"/static/hotel_images/{hotel_id}/"):
+        raise ValueError(f"施設画像URL形式が不正です: {image_url}")
+
+    filename = image_url.split("/")[-1]
+    s3_key = f"hotel_images/{hotel_id}/{filename}"
+
+    client = get_s3_client()
+    resp = client.get_object(Bucket=settings.S3_BUCKET, Key=s3_key)
+    body = resp["Body"].read()
+    mime_type = resp.get("ContentType") or mimetypes.guess_type(filename)[0] or "image/webp"
+    return body, mime_type
 
 
 class CreativeGenerationRequestAuth(BaseModel):
@@ -119,11 +207,34 @@ async def generate_creative_assets_authenticated(
         
         # 広告用画像を生成
         if request.generate_images:
-            ad_image_urls, ad_image_gen_prompt = await generator.generate_ad_images(
+            selected_refs, selection_log = _select_ad_reference_images(hotel)
+            if not selected_refs:
+                raise HTTPException(
+                    status_code=400,
+                    detail="広告画像生成には施設画像が必要です。施設設定で画像を登録してください。"
+                )
+            reference_payload = {}
+            try:
+                for slot, ref in selected_refs.items():
+                    image_data, mime_type = _fetch_s3_image_bytes(hotel_id, ref.get("url", ""))
+                    reference_payload[slot] = {
+                        "data": image_data,
+                        "mime_type": mime_type,
+                        "url": ref.get("url", ""),
+                    }
+            except Exception:
+                raise HTTPException(
+                    status_code=503,
+                    detail="施設画像の取得に失敗しました。ストレージ接続を確認してください。"
+                )
+
+            ad_image_urls, generation_log = await generator.generate_ad_images_with_references(
                 marketing_plan=marketing_plan,
                 llm_client=llm_client_image,
-                hotel_id=hotel_id
+                hotel_id=hotel_id,
+                reference_images=reference_payload,
             )
+            ad_image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
         # LP生成（LP用画像URLとホテル情報を渡す）
         if request.generate_lp:
@@ -370,10 +481,17 @@ async def generate_creative_assets(
     marketing_plan = session.get(MarketingPlan, request.marketing_plan_id)
     if not marketing_plan:
         raise HTTPException(status_code=404, detail="マーケティングプランが見つかりません")
+
+    hotel = None
+    if marketing_plan.analysis_session_id:
+        analysis_session = session.get(AnalysisSession, marketing_plan.analysis_session_id)
+        if analysis_session:
+            hotel = session.get(Hotel, analysis_session.hotel_id)
     
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
+        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
         
         lp_code = None
         lp_prompt = None
@@ -391,10 +509,39 @@ async def generate_creative_assets(
         
         # 画像プロンプト生成
         if request.generate_images:
-            image_prompts, image_gen_prompt = await generator.generate_ad_images(
+            if not hotel:
+                raise HTTPException(
+                    status_code=400,
+                    detail="広告画像生成に必要な施設情報が見つかりません"
+                )
+            selected_refs, selection_log = _select_ad_reference_images(hotel)
+            if not selected_refs:
+                raise HTTPException(
+                    status_code=400,
+                    detail="広告画像生成には施設画像が必要です。施設設定で画像を登録してください。"
+                )
+            reference_payload = {}
+            try:
+                for slot, ref in selected_refs.items():
+                    image_data, mime_type = _fetch_s3_image_bytes(hotel.id, ref.get("url", ""))
+                    reference_payload[slot] = {
+                        "data": image_data,
+                        "mime_type": mime_type,
+                        "url": ref.get("url", ""),
+                    }
+            except Exception:
+                raise HTTPException(
+                    status_code=503,
+                    detail="施設画像の取得に失敗しました。ストレージ接続を確認してください。"
+                )
+
+            image_prompts, generation_log = await generator.generate_ad_images_with_references(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client
+                llm_client=llm_client_image,
+                hotel_id=hotel.id,
+                reference_images=reference_payload,
             )
+            image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
         # 広告コピー生成
         if request.generate_ad_copy:
@@ -780,5 +927,3 @@ async def upload_lp_image(
         "filename": new_filename,
         "lp_image_urls": asset.lp_image_urls  # refreshした後の値を返す
     }
-
-

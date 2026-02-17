@@ -358,6 +358,57 @@ class LLMClient:
         except Exception as e:
             raise Exception(f"画像生成エラー: {str(e)}")
 
+    async def generate_image_with_reference(
+        self,
+        prompt: str,
+        reference_image_data: bytes,
+        reference_mime_type: str = "image/webp",
+        aspect_ratio: str = "16:9",
+    ) -> Tuple[bytes, str]:
+        """
+        参照画像を添付して画像を生成（非同期版）
+
+        Args:
+            prompt: 画像生成プロンプト
+            reference_image_data: 参照画像バイナリ
+            reference_mime_type: 参照画像MIMEタイプ
+            aspect_ratio: アスペクト比（未使用、将来拡張用）
+
+        Returns:
+            (画像バイナリデータ, MIMEタイプ) のタプル
+        """
+        def _generate_image_with_reference_sync():
+            from google import genai as genai_new
+            from google.genai import types as genai_types
+
+            client = genai_new.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+            image_part = genai_types.Part.from_bytes(
+                data=reference_image_data,
+                mime_type=reference_mime_type,
+            )
+
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=[image_part, prompt],
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["Text", "Image"]
+                )
+            )
+
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "inline_data") and part.inline_data is not None:
+                    return part.inline_data.data, part.inline_data.mime_type
+
+            raise Exception("画像が生成されませんでした")
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(_image_executor, _generate_image_with_reference_sync)
+            return result
+        except Exception as e:
+            raise Exception(f"参照画像付き画像生成エラー: {str(e)}")
+
 
 # モデル名ごとのインスタンスキャッシュ
 _llm_clients: dict[str, LLMClient] = {}
