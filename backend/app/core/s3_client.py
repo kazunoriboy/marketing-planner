@@ -40,7 +40,7 @@ def ensure_bucket() -> None:
         client.head_bucket(Bucket=bucket)
     except client.exceptions.ClientError as e:
         error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code == "404":
+        if error_code in ("404", "NoSuchBucket"):
             try:
                 client.create_bucket(Bucket=bucket)
                 logger.info("S3 bucket created: %s", bucket)
