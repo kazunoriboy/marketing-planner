@@ -49,6 +49,7 @@ export interface HotelResponse {
   strengths: Record<string, unknown>;
   cv_url?: string;
   hotel_assets?: HotelAssets;
+  facility_images?: FacilityImageItem[];
   role: string;
 }
 
@@ -59,6 +60,15 @@ export interface HotelAssets {
   dining?: string[];            // 料理・食事
   services?: string[];          // サービス
   experiences?: string[];       // 体験・アクティビティ
+}
+
+// 施設画像1件
+export interface FacilityImageItem {
+  key: string;
+  url: string;
+  description: string;
+  type: string;
+  order: number;
 }
 
 export interface HotelCreateRequest {
@@ -555,6 +565,99 @@ export const facilityApi = {
       `/facility/hotels/${hotelId}`,
       {
         method: "DELETE",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 施設画像を1枚アップロード
+   */
+  async uploadHotelImage(
+    hotelId: number,
+    file: File,
+    type: string,
+    description?: string
+  ): Promise<FacilityImageItem> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("type", type);
+    if (description !== undefined && description !== "") {
+      formData.append("description", description);
+    }
+
+    const makeRequest = async (token: string | null) => {
+      return fetch(
+        `${API_BASE_URL}/facility/hotels/${hotelId}/images`,
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+    };
+
+    let token = localStorage.getItem("facility_access_token");
+    let response = await makeRequest(token);
+
+    if (response.status === 401) {
+      const refreshToken = localStorage.getItem("facility_refresh_token");
+      if (refreshToken) {
+        try {
+          const refreshResponse = await fetch(`${API_BASE_URL}/facility/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+          if (refreshResponse.ok) {
+            const tokens: TokenResponse = await refreshResponse.json();
+            saveTokens("facility", tokens);
+            token = tokens.access_token;
+            response = await makeRequest(token);
+          } else {
+            clearTokens("facility");
+          }
+        } catch {
+          clearTokens("facility");
+        }
+      }
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const detail = typeof errorData.detail === "string" ? errorData.detail : "画像の登録に失敗しました";
+      throw new ApiError(response.status, detail);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * 施設画像を削除
+   */
+  async deleteHotelImage(hotelId: number, imageKey: string): Promise<void> {
+    await apiRequest<void>(
+      `/facility/hotels/${hotelId}/images/${encodeURIComponent(imageKey)}`,
+      {
+        method: "DELETE",
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 施設画像の種別・説明を更新
+   */
+  async updateHotelImage(
+    hotelId: number,
+    imageKey: string,
+    data: { type?: string; description?: string }
+  ): Promise<FacilityImageItem> {
+    return apiRequest<FacilityImageItem>(
+      `/facility/hotels/${hotelId}/images/${encodeURIComponent(imageKey)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
       },
       "facility"
     );

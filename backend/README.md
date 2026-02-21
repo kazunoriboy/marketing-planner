@@ -129,12 +129,16 @@ backend/
 
 ### 1. 環境変数の設定
 
-`backend/.env` ファイルを作成し、以下を設定：
+環境ごとに `backend/.env` を用意し、必要な値を設定してください。
 
-```env
-DATABASE_URL=postgresql://postgres:postgres@db:5432/marketing_planner
-GOOGLE_API_KEY=your_google_api_key_here
+```bash
+# env.example をコピーして .env を作成
+cp env.example .env
+# .env を編集して必須項目・オプションを設定
 ```
+
+**必須**: `DATABASE_URL`, `GOOGLE_API_KEY`  
+**施設画像利用時**: `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`（Docker 内は `S3_ENDPOINT_URL=http://storage:9000`）
 
 詳細は `ENV_SETUP.md` を参照してください。
 

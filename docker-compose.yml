@@ -12,6 +12,7 @@ services:
       - ./backend/.env
     depends_on:
       - db
+      - storage
 
   frontend:
     build:
@@ -38,5 +39,24 @@ services:
     ports:
       - "5432:5432"
 
+  storage:
+    image: rustfs/rustfs:latest
+    volumes:
+      - rustfs_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - RUSTFS_ACCESS_KEY=rustfsadmin
+      - RUSTFS_SECRET_KEY=rustfsadmin
+      - RUSTFS_CONSOLE_ENABLE=true
+    command: >
+      --address :9000
+      --console-enable
+      --access-key rustfsadmin
+      --secret-key rustfsadmin
+      /data
+
 volumes:
   postgres_data:
+  rustfs_data:

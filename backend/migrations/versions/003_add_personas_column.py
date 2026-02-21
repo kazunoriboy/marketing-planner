@@ -21,12 +21,32 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """analysis_sessionsテーブルにpersonasカラムを追加"""
-    op.add_column(
-        'analysis_sessions',
-        sa.Column('personas', postgresql.JSONB(), nullable=True, server_default='[]')
-    )
+    connection = op.get_bind()
+    column_exists = connection.execute(
+        sa.text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns
+                WHERE table_name = 'analysis_sessions' AND column_name = 'personas'
+            )
+        """)
+    ).scalar()
+    if not column_exists:
+        op.add_column(
+            'analysis_sessions',
+            sa.Column('personas', postgresql.JSONB(), nullable=True, server_default='[]')
+        )
 
 
 def downgrade() -> None:
     """personasカラムを削除"""
-    op.drop_column('analysis_sessions', 'personas')
+    connection = op.get_bind()
+    column_exists = connection.execute(
+        sa.text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns
+                WHERE table_name = 'analysis_sessions' AND column_name = 'personas'
+            )
+        """)
+    ).scalar()
+    if column_exists:
+        op.drop_column('analysis_sessions', 'personas')

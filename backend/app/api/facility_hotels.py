@@ -1,17 +1,28 @@
 """施設管理API（施設管理者用）"""
+import os
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlmodel import Session, select
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.core.llm import get_llm_client
+from app.core.image_utils import save_facility_image, delete_facility_image_file
 from app.models import FacilityAdmin, FacilityAdminHotel, Hotel, FacilityAdminHotelRole
 from app.auth.dependencies import get_current_facility_admin
 from sqlmodel import select
 
 router = APIRouter(prefix="/facility/hotels", tags=["Facility Hotels"])
+
+# 施設画像の種別（API・DB で共通）
+FACILITY_IMAGE_TYPES = [
+    "exterior", "interior", "room", "bath", "cuisine", "lobby",
+    "restaurant", "sightseeing", "staff", "other",
+]
+FACILITY_IMAGE_MAX_COUNT = 10
+ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 
 
 class HotelCreateRequest(BaseModel):
@@ -38,6 +49,21 @@ class HotelUpdateRequest(BaseModel):
     cv_url: Optional[str] = None
 
 
+class FacilityImageItemResponse(BaseModel):
+    """施設画像1件のレスポンス"""
+    key: str
+    url: str
+    description: str
+    type: str
+    order: int
+
+
+class FacilityImageUpdateRequest(BaseModel):
+    """施設画像メタデータ更新リクエスト"""
+    type: Optional[str] = None
+    description: Optional[str] = None
+
+
 class HotelResponse(BaseModel):
     """施設レスポンス"""
     id: int
@@ -50,6 +76,7 @@ class HotelResponse(BaseModel):
     strengths: dict
     cv_url: Optional[str]
     hotel_assets: dict = {}  # 施設の資産情報
+    facility_images: list = []  # 施設画像（最大10件）
     role: str  # 施設管理者の権限
     
     class Config:
@@ -113,6 +140,7 @@ async def list_my_hotels(
                 strengths=hotel.strengths,
                 cv_url=hotel.cv_url,
                 hotel_assets=hotel.hotel_assets or {},
+                facility_images=hotel.facility_images if hotel.facility_images else [],
                 role=perm.role,
             ))
             hotel_permissions_map[hotel.id] = perm.role
@@ -168,6 +196,7 @@ async def list_my_hotels(
                     strengths=hotel.strengths,
                     cv_url=hotel.cv_url,
                     hotel_assets=hotel.hotel_assets or {},
+                    facility_images=hotel.facility_images if hotel.facility_images else [],
                     role=FacilityAdminHotelRole.owner,
                 ))
         
@@ -253,6 +282,7 @@ async def create_hotel(
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
         hotel_assets=hotel.hotel_assets or {},
+        facility_images=hotel.facility_images if hotel.facility_images else [],
         role=FacilityAdminHotelRole.owner,
     )
 
@@ -303,6 +333,7 @@ async def get_hotel(
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
         hotel_assets=hotel.hotel_assets or {},
+        facility_images=hotel.facility_images if hotel.facility_images else [],
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -386,6 +417,7 @@ async def update_hotel(
         strengths=hotel.strengths,
         cv_url=hotel.cv_url,
         hotel_assets=hotel.hotel_assets or {},
+        facility_images=hotel.facility_images if hotel.facility_images else [],
         role=permission.role,
         created_at=hotel.created_at,
         updated_at=hotel.updated_at,
@@ -446,6 +478,231 @@ async def delete_hotel(
     # 施設を削除
     session.delete(hotel)
     session.commit()
+
+
+# ============================================
+# 施設画像 API
+# ============================================
+
+@router.post("/{hotel_id}/images", response_model=FacilityImageItemResponse, status_code=status.HTTP_201_CREATED)
+async def upload_facility_image(
+    hotel_id: int,
+    file: UploadFile = File(...),
+    type: str = Form(...),
+    description: str = Form(""),
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    施設画像を1枚アップロードする。
+    1MB 超過時はサーバ側で圧縮して保存する。1施設あたり最大10枚まで。
+    """
+    # 権限確認（owner または editor）
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id,
+        )
+    ).first()
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    if permission.role not in [FacilityAdminHotelRole.owner, FacilityAdminHotelRole.editor]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="編集権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    images = list(hotel.facility_images or [])
+    if len(images) >= FACILITY_IMAGE_MAX_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"施設画像は最大{FACILITY_IMAGE_MAX_COUNT}枚までです",
+        )
+
+    if type not in FACILITY_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効な種別です。有効な値: {', '.join(FACILITY_IMAGE_TYPES)}",
+        )
+
+    file_ext = os.path.splitext(file.filename or "")[1].lower()
+    if file_ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無効なファイル形式です。有効な形式: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}",
+        )
+
+    content = await file.read()
+    try:
+        key, url = save_facility_image(hotel_id, content, file_ext)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ストレージ接続に失敗しました",
+        )
+
+    order = max((item.get("order", 0) for item in images), default=-1) + 1
+    new_item = {
+        "key": key,
+        "url": url,
+        "description": description or "",
+        "type": type,
+        "order": order,
+    }
+    images.append(new_item)
+    hotel.facility_images = images
+    hotel.updated_at = datetime.utcnow()
+    flag_modified(hotel, "facility_images")
+    session.add(hotel)
+    session.commit()
+    session.refresh(hotel)
+
+    return FacilityImageItemResponse(
+        key=new_item["key"],
+        url=new_item["url"],
+        description=new_item["description"],
+        type=new_item["type"],
+        order=new_item["order"],
+    )
+
+
+@router.delete("/{hotel_id}/images/{image_key}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_facility_image(
+    hotel_id: int,
+    image_key: str,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session),
+):
+    """指定 key の施設画像を削除する（DB と実ファイルの両方）。"""
+    # 権限確認（owner または editor）
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id,
+        )
+    ).first()
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    if permission.role not in [FacilityAdminHotelRole.owner, FacilityAdminHotelRole.editor]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="編集権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    images = hotel.facility_images if hotel.facility_images else []
+    new_images = [item for item in images if item.get("key") != image_key]
+    if len(new_images) == len(images):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定された画像が見つかりません",
+        )
+
+    # 削除対象の url を取得してから S3 上のオブジェクトを削除
+    removed = next((item for item in images if item.get("key") == image_key), None)
+    if removed:
+        try:
+            delete_facility_image_file(hotel_id, image_key, removed.get("url", ""))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="ストレージ接続に失敗しました",
+            )
+
+    hotel.facility_images = new_images
+    hotel.updated_at = datetime.utcnow()
+    flag_modified(hotel, "facility_images")
+    session.add(hotel)
+    session.commit()
+
+
+@router.put("/{hotel_id}/images/{image_key}", response_model=FacilityImageItemResponse)
+async def update_facility_image(
+    hotel_id: int,
+    image_key: str,
+    request: FacilityImageUpdateRequest,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session),
+):
+    """指定 key の施設画像の種別・説明を更新する（実ファイルは変更しない）。"""
+    # 権限確認（owner または editor）
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id,
+        )
+    ).first()
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+    if permission.role not in [FacilityAdminHotelRole.owner, FacilityAdminHotelRole.editor]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="編集権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    images = list(hotel.facility_images or [])
+    target_index = next((i for i, item in enumerate(images) if item.get("key") == image_key), None)
+    if target_index is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定された画像が見つかりません",
+        )
+
+    item = dict(images[target_index])
+    if request.type is not None:
+        if request.type not in FACILITY_IMAGE_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"無効な種別です。有効な値: {', '.join(FACILITY_IMAGE_TYPES)}",
+            )
+        item["type"] = request.type
+    if request.description is not None:
+        item["description"] = request.description
+
+    images[target_index] = item
+    hotel.facility_images = images
+    hotel.updated_at = datetime.utcnow()
+    flag_modified(hotel, "facility_images")
+    session.add(hotel)
+    session.commit()
+    session.refresh(hotel)
+
+    return FacilityImageItemResponse(
+        key=item["key"],
+        url=item["url"],
+        description=item.get("description", ""),
+        type=item["type"],
+        order=item.get("order", 0),
+    )
 
 
 # ============================================

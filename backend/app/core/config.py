@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     # 初期システムアドミン設定（オプション）
     INITIAL_ADMIN_EMAIL: Optional[str] = None
     INITIAL_ADMIN_PASSWORD: Optional[str] = None
-    
+
+    # S3互換ストレージ（施設画像保存用）。未設定時は get_s3_client 利用時にエラーになる。
+    S3_ENDPOINT_URL: Optional[str] = None
+    S3_ACCESS_KEY: Optional[str] = None
+    S3_SECRET_KEY: Optional[str] = None
+    S3_BUCKET: str = "facility-images"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
