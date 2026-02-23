@@ -501,9 +501,46 @@ The image should make viewers want to book immediately.""",
         except Exception:
             return fallback_map.get(image_type, "今すぐ予約")
 
+    def _should_add_human_presence(self, plan: MarketingPlan) -> bool:
+        """プランの内容から人物を追加すべきか判定する。
+        ファミリー・一人旅・旅の体験フォーカスの場合は True、
+        施設・客室・料理などにフォーカスする場合は False を返す。
+        """
+        # 判定対象テキストを結合（プラン名・コンセプト・ターゲット情報）
+        target_str = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else ""
+        haystack = " ".join([plan.plan_name or "", plan.concept or "", target_str]).lower()
+
+        # 人物を入れた方がよいキーワード
+        human_keywords = [
+            "ファミリー", "家族", "子供", "お子", "親子", "kids", "family",
+            "一人旅", "ひとり旅", "おひとり", "solo",
+            "カップル", "couple", "ふたり", "二人",
+            "体験", "アクティビティ", "思い出", "旅の", "旅行",
+        ]
+        # 施設・空間にフォーカスするキーワード（人物不要）
+        facility_keywords = [
+            "客室", "お部屋", "部屋", "空間", "インテリア",
+            "料理", "お料理", "美食", "グルメ", "食事",
+            "温泉", "露天風呂", "大浴場", "サウナ",
+            "施設", "設備", "庭園",
+        ]
+
+        human_score = sum(1 for kw in human_keywords if kw in haystack)
+        facility_score = sum(1 for kw in facility_keywords if kw in haystack)
+
+        return human_score >= facility_score
+
     async def _create_ad_edit_prompt(self, base_prompt: str, image_type: str, plan: MarketingPlan, llm_client) -> str:
         """参照画像編集向けの広告生成プロンプトを作成"""
         overlay_copy = await self._derive_overlay_copy(image_type, plan, llm_client)
+        add_human = self._should_add_human_presence(plan)
+
+        human_instruction = (
+            "2) Add natural human presence (guest or staff) to increase warmth and trust, while avoiding uncanny faces. "
+            "STRICTLY PROHIBITED: Do NOT add any people if the scene depicts a bath, hot spring (onsen), bathtub, or any bathing area."
+            if add_human else
+            "2) Keep the scene without people — focus on the atmosphere, space, and details of the facility."
+        )
 
         return f"""{base_prompt}
 
@@ -511,7 +548,7 @@ Use the provided reference image as the primary visual base.
 Keep the facility identity and atmosphere recognizable.
 Add ad-positive enhancements:
 1) Embed a short Japanese promotional text naturally in the image (readable, elegant, not excessive): "{overlay_copy}".
-2) Add natural human presence (guest or staff) to increase warmth and trust, while avoiding uncanny faces.
+{human_instruction}
 3) Preserve photorealistic quality suitable for hotel advertising.
 4) Avoid logos/watermarks and avoid overcrowded composition.
 """
