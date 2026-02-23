@@ -316,7 +316,7 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
                 continue
 
             try:
-                edit_prompt = self._create_ad_edit_prompt(config["prompt"], image_type, marketing_plan)
+                edit_prompt = await self._create_ad_edit_prompt(config["prompt"], image_type, marketing_plan, llm_client)
                 image_data, mime_type = await llm_client.generate_image_with_reference(
                     prompt=edit_prompt,
                     reference_image_data=ref_data,
@@ -411,14 +411,99 @@ The image should make viewers want to book immediately.""",
             }
         }
 
-    def _create_ad_edit_prompt(self, base_prompt: str, image_type: str, plan: MarketingPlan) -> str:
-        """参照画像編集向けの広告生成プロンプトを作成"""
-        copy_map = {
-            "display_wide": "特別な休日へ",
-            "display_square": "今だけ限定",
-            "display_vertical": "癒しの温泉旅",
+    async def _derive_overlay_copy(self, image_type: str, plan: MarketingPlan, llm_client) -> str:
+        """プランの内容からオーバーレイコピーを導出する。
+        自然に16文字以内に収まるフレーズが見つかればそれを使い、
+        なければLLMで生成する。
+        """
+        MAX_LEN = 16
+        concept = plan.concept or ""
+        plan_name = plan.plan_name or ""
+        benefits = plan.benefits if isinstance(plan.benefits, dict) else {}
+
+        # コンセプトを句読点で分割して短いフレーズ候補を抽出
+        concept_phrases = [p.strip() for p in re.split(r'[、。,.・\n]', concept) if p.strip()]
+
+        def first_short(phrases: list) -> str | None:
+            return next((p for p in phrases if len(p) <= MAX_LEN), None)
+
+        # benefitsから短い文言を候補として収集
+        benefit_phrases = []
+        for v in benefits.values():
+            if isinstance(v, str) and v.strip():
+                benefit_phrases.append(v.strip())
+            elif isinstance(v, list):
+                benefit_phrases.extend(str(item).strip() for item in v if str(item).strip())
+
+        if image_type == "display_wide":
+            candidate = first_short(concept_phrases)
+        elif image_type == "display_square":
+            candidate = (
+                first_short(benefit_phrases)
+                or first_short(concept_phrases[1:])
+                or first_short(concept_phrases)
+            )
+        elif image_type == "display_vertical":
+            candidate = (
+                (plan_name if len(plan_name) <= MAX_LEN else None)
+                or first_short(concept_phrases)
+            )
+        else:
+            candidate = plan_name if len(plan_name) <= MAX_LEN else None
+
+        if candidate:
+            return candidate
+
+        # 自然に短いフレーズが見つからない場合はLLMで生成
+        return await self._generate_overlay_copy_with_llm(image_type, plan, llm_client, MAX_LEN)
+
+    async def _generate_overlay_copy_with_llm(
+        self, image_type: str, plan: MarketingPlan, llm_client, max_len: int = 16
+    ) -> str:
+        """LLMを使って広告オーバーレイコピーを生成する"""
+        tone_map = {
+            "display_wide": "広告バナー向けの、コンセプトを凝縮した訴求フレーズ",
+            "display_square": "SNS広告向けの、特典・体験価値を伝えるフレーズ",
+            "display_vertical": "モバイル広告向けの、体験・感情に訴えるフレーズ",
         }
-        overlay_copy = copy_map.get(image_type, "今すぐ予約")
+        tone = tone_map.get(image_type, "広告向けの訴求フレーズ")
+
+        prompt = f"""以下のマーケティングプランに基づいて、広告画像に重ねる短いプロモーションテキストを1つ生成してください。
+
+【プラン情報】
+プラン名: {plan.plan_name}
+コンセプト: {plan.concept}
+特典: {json.dumps(plan.benefits, ensure_ascii=False)}
+
+【要件】
+- {tone}
+- 必ず{max_len}文字以内で作成すること（厳守）
+- 日本語で記述
+- キャッチーで広告効果の高い表現
+- テキストのみ出力（説明や引用符は不要）"""
+
+        fallback_map = {
+            "display_wide": "特別なひとときへ",
+            "display_square": "今だけの特別プラン",
+            "display_vertical": "特別な体験を",
+        }
+
+        try:
+            response = await llm_client.generate_text(
+                user_prompt=prompt,
+                system_prompt="あなたは宿泊業界の広告コピーライターです。指定の文字数制限を厳守して、簡潔で効果的なコピーを1行だけ出力してください。",
+                max_tokens=50,
+            )
+            copy = response.strip().strip('"').strip("「」").strip()
+            if not copy or len(copy) > max_len:
+                return fallback_map.get(image_type, "今すぐ予約")
+            return copy
+        except Exception:
+            return fallback_map.get(image_type, "今すぐ予約")
+
+    async def _create_ad_edit_prompt(self, base_prompt: str, image_type: str, plan: MarketingPlan, llm_client) -> str:
+        """参照画像編集向けの広告生成プロンプトを作成"""
+        overlay_copy = await self._derive_overlay_copy(image_type, plan, llm_client)
 
         return f"""{base_prompt}
 
