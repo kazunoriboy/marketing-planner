@@ -279,6 +279,69 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
         prompt_summary = self._format_generation_summary(image_configs, generation_log, "広告用画像")
         return image_urls, prompt_summary
 
+    async def generate_ad_images_with_references(
+        self,
+        marketing_plan: MarketingPlan,
+        llm_client,
+        hotel_id: int,
+        reference_images: Dict[str, Dict[str, object]],
+        hotel_info: Dict = None,
+    ) -> Tuple[Dict, str]:
+        """
+        施設画像を参照として広告画像を生成する。
+
+        Args:
+            marketing_plan: マーケティングプラン
+            llm_client: 画像生成対応LLMクライアント
+            hotel_id: ホテルID
+            reference_images: 枠ごとの参照画像情報
+                例: {"display_wide": {"data": b"...", "mime_type": "image/webp", "url": "..."}}
+            hotel_info: 施設情報（name, address など）。パターン3のブランド署名に使用。
+
+        Returns:
+            (画像URL辞書, 生成ログ) のタプル
+        """
+        image_configs = self._create_ad_image_prompts(marketing_plan)
+        image_dir = os.path.join("static", "generated_images", str(hotel_id))
+        os.makedirs(image_dir, exist_ok=True)
+
+        image_urls = {}
+        generation_log = []
+
+        for image_type, config in image_configs.items():
+            ref = reference_images.get(image_type, {})
+            ref_data = ref.get("data")
+            ref_mime = ref.get("mime_type", "image/webp")
+            if not ref_data:
+                image_urls[image_type] = {"error": "reference_not_found", "message": "参照画像が見つかりません"}
+                generation_log.append(f"{image_type}: 生成失敗 - 参照画像なし")
+                continue
+
+            try:
+                edit_prompt = await self._create_ad_edit_prompt(config["prompt"], image_type, marketing_plan, llm_client, hotel_info)
+                image_data, mime_type = await llm_client.generate_image_with_reference(
+                    prompt=edit_prompt,
+                    reference_image_data=ref_data,
+                    reference_mime_type=ref_mime,
+                    aspect_ratio=config.get("aspect_ratio", "16:9"),
+                )
+
+                ext = "png" if "png" in mime_type else "jpg"
+                filename = f"ad_{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
+                filepath = os.path.join(image_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(image_data)
+
+                image_urls[image_type] = f"/static/generated_images/{hotel_id}/{filename}"
+                generation_log.append(f"{image_type}: 生成成功（参照画像から編集）")
+            except Exception as e:
+                err = str(e)
+                image_urls[image_type] = {"error": "generation_failed", "message": f"画像生成に失敗: {err[:100]}"}
+                generation_log.append(f"{image_type}: 生成失敗 - {err[:100]}")
+
+        prompt_summary = self._format_generation_summary(image_configs, generation_log, "広告用画像（参照編集）")
+        return image_urls, prompt_summary
+
     def _create_lp_image_prompts(self, plan: MarketingPlan) -> Dict:
         """LP用画像のプロンプトを作成"""
         target_info = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else "一般"
@@ -349,6 +412,318 @@ The image should make viewers want to book immediately.""",
                 "aspect_ratio": "9:16"
             }
         }
+
+    async def _derive_overlay_copy(self, image_type: str, plan: MarketingPlan, llm_client) -> str:
+        """プランの内容からオーバーレイコピーを導出する。
+        自然に16文字以内に収まるフレーズが見つかればそれを使い、
+        なければLLMで生成する。
+        """
+        MAX_LEN = 16
+        concept = plan.concept or ""
+        plan_name = plan.plan_name or ""
+        benefits = plan.benefits if isinstance(plan.benefits, dict) else {}
+
+        # コンセプトを句読点で分割して短いフレーズ候補を抽出
+        concept_phrases = [p.strip() for p in re.split(r'[、。,.・\n]', concept) if p.strip()]
+
+        def first_short(phrases: list) -> str | None:
+            return next((p for p in phrases if len(p) <= MAX_LEN), None)
+
+        # benefitsから短い文言を候補として収集
+        benefit_phrases = []
+        for v in benefits.values():
+            if isinstance(v, str) and v.strip():
+                benefit_phrases.append(v.strip())
+            elif isinstance(v, list):
+                benefit_phrases.extend(str(item).strip() for item in v if str(item).strip())
+
+        if image_type == "display_wide":
+            candidate = first_short(concept_phrases)
+        elif image_type == "display_square":
+            candidate = (
+                first_short(benefit_phrases)
+                or first_short(concept_phrases[1:])
+                or first_short(concept_phrases)
+            )
+        elif image_type == "display_vertical":
+            candidate = (
+                (plan_name if len(plan_name) <= MAX_LEN else None)
+                or first_short(concept_phrases)
+            )
+        else:
+            candidate = plan_name if len(plan_name) <= MAX_LEN else None
+
+        if candidate:
+            return candidate
+
+        # 自然に短いフレーズが見つからない場合はLLMで生成
+        return await self._generate_overlay_copy_with_llm(image_type, plan, llm_client, MAX_LEN)
+
+    async def _generate_overlay_copy_with_llm(
+        self, image_type: str, plan: MarketingPlan, llm_client, max_len: int = 16
+    ) -> str:
+        """LLMを使って広告オーバーレイコピーを生成する"""
+        tone_map = {
+            "display_wide": "広告バナー向けの、コンセプトを凝縮した訴求フレーズ",
+            "display_square": "SNS広告向けの、特典・体験価値を伝えるフレーズ",
+            "display_vertical": "モバイル広告向けの、体験・感情に訴えるフレーズ",
+        }
+        tone = tone_map.get(image_type, "広告向けの訴求フレーズ")
+
+        prompt = f"""以下のマーケティングプランに基づいて、広告画像に重ねる短いプロモーションテキストを1つ生成してください。
+
+【プラン情報】
+プラン名: {plan.plan_name}
+コンセプト: {plan.concept}
+特典: {json.dumps(plan.benefits, ensure_ascii=False)}
+
+【要件】
+- {tone}
+- 必ず{max_len}文字以内で作成すること（厳守）
+- 日本語で記述
+- キャッチーで広告効果の高い表現
+- テキストのみ出力（説明や引用符は不要）"""
+
+        fallback_map = {
+            "display_wide": "特別なひとときへ",
+            "display_square": "今だけの特別プラン",
+            "display_vertical": "特別な体験を",
+        }
+
+        try:
+            response = await llm_client.generate_text(
+                user_prompt=prompt,
+                system_prompt="あなたは宿泊業界の広告コピーライターです。指定の文字数制限を厳守して、簡潔で効果的なコピーを1行だけ出力してください。",
+                max_tokens=50,
+            )
+            copy = response.strip().strip('"').strip("「」").strip()
+            if not copy or len(copy) > max_len:
+                return fallback_map.get(image_type, "今すぐ予約")
+            return copy
+        except Exception:
+            return fallback_map.get(image_type, "今すぐ予約")
+
+    def _should_add_human_presence(self, plan: MarketingPlan) -> bool:
+        """プランの内容から人物を追加すべきか判定する。
+        ファミリー・一人旅・旅の体験フォーカスの場合は True、
+        施設・客室・料理などにフォーカスする場合は False を返す。
+        """
+        # 判定対象テキストを結合（プラン名・コンセプト・ターゲット情報）
+        target_str = json.dumps(plan.target_audience, ensure_ascii=False) if plan.target_audience else ""
+        haystack = " ".join([plan.plan_name or "", plan.concept or "", target_str]).lower()
+
+        # 人物を入れた方がよいキーワード
+        human_keywords = [
+            "ファミリー", "家族", "子供", "お子", "親子", "kids", "family",
+            "一人旅", "ひとり旅", "おひとり", "solo",
+            "カップル", "couple", "ふたり", "二人",
+            "体験", "アクティビティ", "思い出", "旅の", "旅行",
+        ]
+        # 施設・空間にフォーカスするキーワード（人物不要）
+        facility_keywords = [
+            "客室", "お部屋", "部屋", "空間", "インテリア",
+            "料理", "お料理", "美食", "グルメ", "食事",
+            "温泉", "露天風呂", "大浴場", "サウナ",
+            "施設", "設備", "庭園",
+        ]
+
+        human_score = sum(1 for kw in human_keywords if kw in haystack)
+        facility_score = sum(1 for kw in facility_keywords if kw in haystack)
+
+        return human_score >= facility_score
+
+    def _select_ad_pattern(self, plan: MarketingPlan) -> int:
+        """広告パターンを選択する（1: 予約促進、2: 商品理解、3: ブランド訴求）"""
+        all_text = " ".join([
+            plan.plan_name or "",
+            plan.concept or "",
+            json.dumps(plan.benefits, ensure_ascii=False),
+            json.dumps(plan.target_audience, ensure_ascii=False),
+        ])
+
+        p1_keywords = ["割引", "OFF", "off", "円引", "特典", "プレゼント", "無料", "お得", "限定価格", "特別価格"]
+        p1_score = sum(1 for kw in p1_keywords if kw in all_text)
+
+        p3_keywords = ["高級", "上質", "大人", "隠れ", "プレミアム", "ラグジュアリー", "贅沢", "至高", "一流", "こだわり"]
+        p3_score = sum(1 for kw in p3_keywords if kw in all_text)
+
+        if p1_score >= 2:
+            return 1
+        if p3_score >= 2:
+            return 3
+        return 2
+
+    def _extract_plan_text_vars(self, plan: MarketingPlan, hotel_info: Dict = None) -> Dict[str, str]:
+        """プランからパターン埋め込み用テキスト変数を抽出する"""
+        benefits = plan.benefits or {}
+        price_range = plan.price_range or {}
+
+        benefit_texts: list[str] = []
+        if isinstance(benefits, dict):
+            for v in benefits.values():
+                if isinstance(v, str) and v.strip():
+                    benefit_texts.append(v.strip())
+                elif isinstance(v, list):
+                    benefit_texts.extend(str(i).strip() for i in v if str(i).strip())
+
+        price_str = ""
+        if isinstance(price_range, dict):
+            min_p = price_range.get("min") or price_range.get("standard") or price_range.get("base")
+            if isinstance(min_p, (int, float)):
+                price_str = f"{int(min_p):,}円〜"
+            elif isinstance(min_p, str) and min_p:
+                price_str = min_p
+
+        concept_phrases = [p.strip() for p in re.split(r"[、。\n]", plan.concept or "") if p.strip()]
+        concept_short = concept_phrases[0] if concept_phrases else plan.plan_name or ""
+
+        hotel_name = ""
+        place = ""
+        if hotel_info:
+            hotel_name = hotel_info.get("name", "")
+            address = hotel_info.get("address", "")
+            if address:
+                m = re.match(r"^(.+?[都道府県])(.+?[市区町村])?", address)
+                if m:
+                    place = (m.group(1) or "") + (m.group(2) or "")
+
+        benefits_str = json.dumps(benefits, ensure_ascii=False)
+        label = "期間限定" if any(kw in benefits_str for kw in ["限定", "期間"]) else "公式サイト限定"
+
+        return {
+            "label": label,
+            "offer_big": benefit_texts[0] if benefit_texts else plan.plan_name,
+            "offer_sub": benefit_texts[1] if len(benefit_texts) > 1 else concept_short,
+            "cta_p1": "空室を確認する",
+            "footnote": "※詳細・条件は公式サイトにて確認",
+            "feature_main": benefit_texts[0] if benefit_texts else concept_short,
+            "feature_sub": benefit_texts[1] if len(benefit_texts) > 1 else (concept_phrases[1] if len(concept_phrases) > 1 else ""),
+            "support_1": benefit_texts[2] if len(benefit_texts) > 2 else "",
+            "price_or_tag": price_str or (plan.plan_name[:12] if plan.plan_name else ""),
+            "cta_p2": "詳細を見る",
+            "concept_vertical": concept_short,
+            "brand": hotel_name,
+            "place": place,
+            "mini_info": benefit_texts[0] if benefit_texts else "",
+        }
+
+    def _build_ad_prompt_pattern1(self, text_vars: Dict[str, str], aspect_ratio: str, human_instruction: str) -> str:
+        """パターン1: 数字＋CTAで予約を促進する広告プロンプト"""
+        return f"""あなたは広告バナーデザイナー。旅館の予約を促進する高品質な広告画像を生成する。
+
+# 参照画像の扱い
+提供された参照画像を背景写真として使用（撮り直し不要・施設の雰囲気を保持）。
+{human_instruction}
+背景全体をわずかに暗く（-10〜-20%）してコントラストを確保。
+
+# 出力
+- アスペクト比：{aspect_ratio}
+- 余白（セーフエリア）：四辺6%は必ず空ける
+- 文字は日本語を指定どおり正確に描画（文字化け・誤字禁止）。指定外のテキスト追加禁止。
+
+# レイアウト（予約促進型）
+- 右端に縦長のCTAボタン領域（全幅の18〜22%）を確保：角丸の濃色ボタン
+  - ボタン中央に「{text_vars["cta_p1"]}」（白字、太め、中央揃え）
+- 残り左側に「特典パネル」（全幅の60〜70%、高さ55〜70%）：半透明の金/ベージュ系、角丸
+  - パネル上部にピル型ラベル：「{text_vars["label"]}」（小さめ、中央揃え）
+  - パネル中央に最大サイズで「{text_vars["offer_big"]}」（最も大きい文字、見出し）
+  - 「{text_vars["offer_sub"]}」をその直下に（中サイズ、行間広め）
+- 画像の最下部に「{text_vars["footnote"]}」（小さめ、セーフエリア内）
+
+# トーン
+上品・高級感。文字組は整然、要素は少なく、読みやすさ最優先。"""
+
+    def _build_ad_prompt_pattern2(self, text_vars: Dict[str, str], aspect_ratio: str, human_instruction: str) -> str:
+        """パターン2: 色面ブロックで特徴を一撃表示する広告プロンプト"""
+        feature_sub_line = (
+            f"  ブロック内に「{text_vars['feature_sub']}」を縦書きまたは2行縦積み（小〜中サイズ、行間広め）"
+            if text_vars.get("feature_sub") else
+            "  ブロック内は空白（薄いアクセントカラーのみ）"
+        )
+        support_line = (
+            f"- 下部に「{text_vars['support_1']}」と「{text_vars['price_or_tag']}」を小さく横並び"
+            if text_vars.get("support_1") else
+            f"- 下部に「{text_vars['price_or_tag']}」を小さく表示"
+        )
+        return f"""あなたは広告バナーデザイナー。旅館の特徴を一瞬で理解させる広告画像を生成する。
+
+# 参照画像の扱い
+提供された参照画像を背景写真として使用（撮り直し不要・施設の雰囲気を保持）。
+{human_instruction}
+背景の主役（風呂・景色）を邪魔しない位置に文字ブロックを置くため、被写体は右側または奥側に寄せた構図に調整。
+
+# 出力
+- アスペクト比：{aspect_ratio}
+- セーフエリア：四辺6%
+- 文字は日本語を指定どおり正確に描画。指定外のテキスト追加禁止。
+
+# レイアウト（色面ブロック型）
+- 画面中央〜やや左に「メイン色面ブロック」（全幅40〜50%、高さ45〜60%）：不透明寄り（85〜95%）
+  - ブロック内に「{text_vars['feature_main']}」を最大サイズで（白字、太字、中央揃え）
+- メインブロック左に「サブ縦長ブロック」（全幅12〜18%、高さ45〜60%）：濃色（黒/濃茶）で半透明
+{feature_sub_line}
+{support_line}
+- 右下に小さなCTAボタン「{text_vars['cta_p2']}」（角丸、目立たせすぎない）
+
+# トーン
+和・温かさ・上品。写真の空気感を残しつつ、文字はブロックで確実に読ませる。"""
+
+    def _build_ad_prompt_pattern3(self, text_vars: Dict[str, str], aspect_ratio: str, human_instruction: str) -> str:
+        """パターン3: 縦書きコンセプト＋ミニマルなブランド訴求プロンプト"""
+        brand_parts = []
+        if text_vars.get("place"):
+            brand_parts.append(f"「{text_vars['place']}」を小さく")
+        if text_vars.get("brand"):
+            brand_parts.append(f"「{text_vars['brand']}」をやや大きく")
+        if text_vars.get("mini_info"):
+            brand_parts.append(f"「{text_vars['mini_info']}」をさらに小さく添える（入れすぎない）")
+        brand_block = (
+            "- 左下にブランド署名：" + "、".join(brand_parts)
+            if brand_parts else
+            "- 左下のブランド署名は省略"
+        )
+        return f"""あなたは高級旅館のアートディレクター。世界観で惹きつけるミニマルな広告画像を生成する。
+
+# 参照画像の扱い
+提供された参照画像を背景写真として使用（撮り直し不要・施設の静けさと世界観を保持）。
+{human_instruction}
+右側に暗めのグラデーション（右→左に透明へ）を薄く入れ、縦書きの可読性を確保。
+
+# 出力
+- アスペクト比：{aspect_ratio}
+- セーフエリア：四辺8%（この型は余白多め）
+- 文字は日本語を指定どおり正確に描画。指定外のテキスト追加禁止。
+
+# レイアウト（縦書きコンセプト型）
+- 右端（全幅18〜24%）に縦書きで「{text_vars['concept_vertical']}」を配置
+  - 明朝体、白字、行間ゆったり、文字サイズは"読める最小限"より少し大きめ
+{brand_block}
+- CTAや価格は入れない（世界観優先）
+
+# トーン
+上品、静けさ、余白。広告臭を抑え、指名検索・保存される見え方を狙う。"""
+
+    async def _create_ad_edit_prompt(self, base_prompt: str, image_type: str, plan: MarketingPlan, llm_client, hotel_info: Dict = None) -> str:
+        """参照画像編集向けの広告生成プロンプトを作成（3パターン切り替え）"""
+        pattern = self._select_ad_pattern(plan)
+        aspect_ratio_map = {"display_wide": "16:9", "display_square": "1:1", "display_vertical": "9:16"}
+        aspect_ratio = aspect_ratio_map.get(image_type, "1:1")
+        text_vars = self._extract_plan_text_vars(plan, hotel_info)
+        add_human = self._should_add_human_presence(plan)
+
+        human_instruction = (
+            "人物（宿泊客またはスタッフ）を自然に追加して温かみと信頼感を演出する。"
+            "ただし入浴シーン・露天風呂・大浴場には絶対に人物を追加しないこと。"
+            if add_human else
+            "人物は追加せず、施設・空間・料理のディテールにフォーカスする。"
+        )
+
+        if pattern == 1:
+            return self._build_ad_prompt_pattern1(text_vars, aspect_ratio, human_instruction)
+        elif pattern == 3:
+            return self._build_ad_prompt_pattern3(text_vars, aspect_ratio, human_instruction)
+        else:
+            return self._build_ad_prompt_pattern2(text_vars, aspect_ratio, human_instruction)
 
     def _format_generation_summary(self, configs: Dict, logs: list, category: str = "画像") -> str:
         """生成サマリーをフォーマット"""
@@ -841,5 +1216,3 @@ The image should make viewers want to book immediately.""",
                     "features": ["特別な体験", "くつろぎの空間", "おもてなし"]
                 }
             }
-
-
