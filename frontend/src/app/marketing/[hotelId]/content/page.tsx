@@ -653,37 +653,288 @@ export default function ContentPage() {
               )}
 
               {/* 広告コピー */}
-              {currentAsset.ad_copy && Object.keys(currentAsset.ad_copy).length > 0 && (
-                <div className="glass-card p-6 lg:col-span-2">
-                  <div className="flex items-center gap-3 mb-4">
-                    <MessageSquare className="w-6 h-6 text-green-400" />
-                    <h4 className="text-xl font-bold text-white">広告コピー</h4>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.entries(currentAsset.ad_copy).map(([key, value]) => (
-                      <div key={key} className="p-4 bg-white/5 rounded-lg">
-                        <p className="text-sm text-slate-400 mb-2 font-medium">{key}</p>
-                        {typeof value === "object" && value !== null ? (
-                          <div className="space-y-2">
-                            {Object.entries(value as Record<string, unknown>).map(([subKey, subValue]) => (
-                              <div key={subKey}>
-                                <span className="text-xs text-slate-500">{subKey}: </span>
-                                {Array.isArray(subValue) ? (
-                                  <span className="text-slate-300">{subValue.join(" ")}</span>
-                                ) : (
-                                  <span className="text-slate-300">{String(subValue)}</span>
+              {currentAsset.ad_copy && (currentAsset.ad_copy.google_ads || currentAsset.ad_copy.facebook_ads || currentAsset.ad_copy.instagram_ads) && (() => {
+                /** 全角換算の文字数（半角=0.5、全角=1） */
+                const fullWidthLen = (s: string) =>
+                  [...s].reduce((acc, c) => acc + (c.charCodeAt(0) > 0x7F ? 1 : 0.5), 0);
+
+                const copyText = (text: string) => {
+                  navigator.clipboard.writeText(text);
+                  alert("コピーしました");
+                };
+
+                const LenBadge = ({ count, limit }: { count: number; limit: number }) => (
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono flex-shrink-0 ${
+                    count > limit ? "bg-red-500/20 text-red-400" : "bg-white/10 text-slate-500"
+                  }`}>
+                    {count}/{limit}
+                  </span>
+                );
+
+                const { google_ads, facebook_ads, instagram_ads } = currentAsset.ad_copy;
+
+                return (
+                  <div className="glass-card p-6 lg:col-span-2">
+                    <div className="flex items-center gap-3 mb-6">
+                      <MessageSquare className="w-6 h-6 text-green-400" />
+                      <h4 className="text-xl font-bold text-white">広告コピー</h4>
+                    </div>
+                    <div className="space-y-6">
+
+                      {/* Google 検索広告（RSA） */}
+                      {google_ads && (
+                        <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/10 border border-blue-700/30 rounded-xl p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h5 className="text-base font-semibold text-blue-300">Google 検索広告（RSA）</h5>
+                            <button
+                              onClick={() => {
+                                const all = [
+                                  ...(google_ads.headlines || []),
+                                  ...(google_ads.descriptions || [])
+                                ].join("\t");
+                                copyText(all);
+                              }}
+                              className="text-xs px-3 py-1 rounded bg-blue-700/30 text-blue-300 hover:bg-blue-700/50 transition-colors"
+                            >
+                              全コピー
+                            </button>
+                          </div>
+                          {/* 見出し */}
+                          {google_ads.headlines && google_ads.headlines.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">見出し（上限: 全角15文字）</p>
+                              <div className="space-y-2">
+                                {google_ads.headlines.map((h, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-4 flex-shrink-0">#{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{h}</span>
+                                    <LenBadge count={fullWidthLen(h)} limit={15} />
+                                    <button onClick={() => copyText(h)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* 説明文 */}
+                          {google_ads.descriptions && google_ads.descriptions.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">説明文（上限: 全角45文字）</p>
+                              <div className="space-y-2">
+                                {google_ads.descriptions.map((d, i) => (
+                                  <div key={i} className="flex items-start gap-2">
+                                    <span className="text-xs text-slate-500 w-4 flex-shrink-0 mt-0.5">#{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{d}</span>
+                                    <LenBadge count={fullWidthLen(d)} limit={45} />
+                                    <button onClick={() => copyText(d)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Path */}
+                          {(google_ads.path1 || google_ads.path2) && (
+                            <div>
+                              <p className="text-xs text-slate-400 mb-2">表示パス（各上限15文字）</p>
+                              <div className="space-y-1">
+                                {google_ads.path1 && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-10 flex-shrink-0">path1</span>
+                                    <span className="text-slate-200 text-sm flex-1">{google_ads.path1}</span>
+                                    <LenBadge count={fullWidthLen(google_ads.path1)} limit={15} />
+                                    <button onClick={() => copyText(google_ads.path1!)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                )}
+                                {google_ads.path2 && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-10 flex-shrink-0">path2</span>
+                                    <span className="text-slate-200 text-sm flex-1">{google_ads.path2}</span>
+                                    <LenBadge count={fullWidthLen(google_ads.path2)} limit={15} />
+                                    <button onClick={() => copyText(google_ads.path2!)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
                                 )}
                               </div>
-                            ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Facebook 広告 */}
+                      {facebook_ads && (
+                        <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/10 border border-indigo-700/30 rounded-xl p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h5 className="text-base font-semibold text-indigo-300">Facebook 広告</h5>
+                            <button
+                              onClick={() => {
+                                const sections = (facebook_ads.primary_texts || []).map((pt, i) =>
+                                  `【案${i + 1}】\nPrimary Text: ${pt}\nHeadline: ${(facebook_ads.headlines || [])[i] || ""}\nDescription: ${(facebook_ads.descriptions || [])[i] || ""}`
+                                );
+                                copyText(sections.join("\n\n"));
+                              }}
+                              className="text-xs px-3 py-1 rounded bg-indigo-700/30 text-indigo-300 hover:bg-indigo-700/50 transition-colors"
+                            >
+                              全コピー
+                            </button>
                           </div>
-                        ) : (
-                          <p className="text-slate-300">{String(value)}</p>
-                        )}
-                      </div>
-                    ))}
+                          {/* Primary Texts */}
+                          {facebook_ads.primary_texts && facebook_ads.primary_texts.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Primary Text（冒頭125文字に重要訴求を集約）</p>
+                              <div className="space-y-3">
+                                {facebook_ads.primary_texts.map((pt, i) => (
+                                  <div key={i} className="bg-white/5 rounded-lg p-3">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs text-slate-400">案{i + 1}</span>
+                                      <div className="flex items-center gap-2">
+                                        <LenBadge count={pt.length} limit={125} />
+                                        <button onClick={() => copyText(pt)} className="text-slate-500 hover:text-slate-300 text-sm">📋</button>
+                                      </div>
+                                    </div>
+                                    <p className="text-slate-200 text-sm whitespace-pre-wrap">{pt}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Headlines */}
+                          {facebook_ads.headlines && facebook_ads.headlines.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Headline（目安: 40文字以内）</p>
+                              <div className="space-y-2">
+                                {facebook_ads.headlines.map((h, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 flex-shrink-0">案{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{h}</span>
+                                    <LenBadge count={h.length} limit={40} />
+                                    <button onClick={() => copyText(h)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Descriptions */}
+                          {facebook_ads.descriptions && facebook_ads.descriptions.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Description（目安: 20〜30文字）</p>
+                              <div className="space-y-2">
+                                {facebook_ads.descriptions.map((d, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 flex-shrink-0">案{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{d}</span>
+                                    <LenBadge count={d.length} limit={30} />
+                                    <button onClick={() => copyText(d)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* CTA */}
+                          {facebook_ads.cta && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-slate-400">CTA:</span>
+                              <span className="text-slate-200 text-sm flex-1">{facebook_ads.cta}</span>
+                              <button onClick={() => copyText(facebook_ads.cta)} className="text-slate-500 hover:text-slate-300 text-sm">📋</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Instagram 広告 */}
+                      {instagram_ads && (
+                        <div className="bg-gradient-to-br from-pink-900/30 to-rose-800/10 border border-pink-700/30 rounded-xl p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h5 className="text-base font-semibold text-pink-300">Instagram 広告</h5>
+                            <button
+                              onClick={() => {
+                                const sections = (instagram_ads.primary_texts || []).map((pt, i) =>
+                                  `【案${i + 1}】\nPrimary Text: ${pt}\nHeadline: ${(instagram_ads.headlines || [])[i] || ""}\nDescription: ${(instagram_ads.descriptions || [])[i] || ""}`
+                                );
+                                const tags = (instagram_ads.hashtags || []).join(" ");
+                                copyText([...sections, `Hashtags: ${tags}`].join("\n\n"));
+                              }}
+                              className="text-xs px-3 py-1 rounded bg-pink-700/30 text-pink-300 hover:bg-pink-700/50 transition-colors"
+                            >
+                              全コピー
+                            </button>
+                          </div>
+                          {/* Primary Texts */}
+                          {instagram_ads.primary_texts && instagram_ads.primary_texts.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Primary Text（冒頭125文字に重要訴求を集約）</p>
+                              <div className="space-y-3">
+                                {instagram_ads.primary_texts.map((pt, i) => (
+                                  <div key={i} className="bg-white/5 rounded-lg p-3">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs text-slate-400">案{i + 1}</span>
+                                      <div className="flex items-center gap-2">
+                                        <LenBadge count={pt.length} limit={125} />
+                                        <button onClick={() => copyText(pt)} className="text-slate-500 hover:text-slate-300 text-sm">📋</button>
+                                      </div>
+                                    </div>
+                                    <p className="text-slate-200 text-sm whitespace-pre-wrap">{pt}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Headlines */}
+                          {instagram_ads.headlines && instagram_ads.headlines.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Headline（目安: 40文字以内）</p>
+                              <div className="space-y-2">
+                                {instagram_ads.headlines.map((h, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 flex-shrink-0">案{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{h}</span>
+                                    <LenBadge count={h.length} limit={40} />
+                                    <button onClick={() => copyText(h)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Descriptions */}
+                          {instagram_ads.descriptions && instagram_ads.descriptions.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-slate-400 mb-2">Description（目安: 20〜30文字）</p>
+                              <div className="space-y-2">
+                                {instagram_ads.descriptions.map((d, i) => (
+                                  <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 flex-shrink-0">案{i + 1}</span>
+                                    <span className="text-slate-200 text-sm flex-1">{d}</span>
+                                    <LenBadge count={d.length} limit={30} />
+                                    <button onClick={() => copyText(d)} className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-sm">📋</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Hashtags */}
+                          {instagram_ads.hashtags && instagram_ads.hashtags.length > 0 && (
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs text-slate-400">ハッシュタグ</p>
+                                <button onClick={() => copyText(instagram_ads.hashtags.join(" "))} className="text-xs text-slate-500 hover:text-slate-300">📋 全コピー</button>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {instagram_ads.hashtags.map((tag, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => copyText(tag)}
+                                    className="text-xs px-2 py-1 rounded-full bg-pink-900/30 text-pink-300 hover:bg-pink-900/50 transition-colors"
+                                  >
+                                    {tag}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* 広告用画像 */}
               {currentAsset.ad_image_urls && Object.keys(currentAsset.ad_image_urls).length > 0 && (
