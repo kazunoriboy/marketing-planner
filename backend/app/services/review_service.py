@@ -7,6 +7,7 @@ import json
 import re
 from typing import Optional
 from datetime import datetime
+import httpx
 
 from app.services.dify_client import get_dify_client, DifyClient
 
@@ -19,10 +20,6 @@ class ReviewService:
         "jalan": {
             "name": "じゃらん",
             "url_pattern": r"jalan\.net",
-        },
-        "google": {
-            "name": "Googleマップ",
-            "url_pattern": r"google\.(com|co\.jp)/maps",
         },
     }
     
@@ -41,8 +38,8 @@ class ReviewService:
         
         Args:
             url: 検証するURL
-            site_type: サイトタイプ（jalan/google）
-        
+            site_type: サイトタイプ（jalan）
+
         Returns:
             URLが有効かどうか
         """
@@ -126,7 +123,7 @@ class ReviewService:
         
         Args:
             review_urls: サイトタイプとURLのマッピング
-                         例: {"jalan": "https://...", "google": "https://..."}
+                         例: {"jalan": "https://..."}
         
         Returns:
             統合された分析結果:

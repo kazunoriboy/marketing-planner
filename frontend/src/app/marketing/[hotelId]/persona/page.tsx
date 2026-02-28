@@ -740,7 +740,6 @@ export default function PersonaPage() {
   // 口コミURL関連のstate
   const [reviewUrls, setReviewUrls] = useState<Record<string, string>>({});
   const [jalanUrl, setJalanUrl] = useState("");
-  const [googleUrl, setGoogleUrl] = useState("");
   const [savingUrls, setSavingUrls] = useState(false);
   const [analyzingReviews, setAnalyzingReviews] = useState(false);
   const [urlSaveMessage, setUrlSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -764,7 +763,6 @@ export default function PersonaPage() {
         if (urlsData?.review_urls) {
           setReviewUrls(urlsData.review_urls);
           setJalanUrl(urlsData.review_urls.jalan || "");
-          setGoogleUrl(urlsData.review_urls.google || "");
         }
         if (personasData?.personas) {
           setPersonas(personasData.personas);
@@ -859,7 +857,6 @@ export default function PersonaPage() {
     try {
       const urls: ReviewUrlsUpdate = {};
       if (jalanUrl.trim()) urls.jalan = jalanUrl.trim();
-      if (googleUrl.trim()) urls.google = googleUrl.trim();
 
       const result = await marketingApi.updateReviewUrls(hotelId, urls);
       setReviewUrls(result.review_urls);
@@ -1086,7 +1083,7 @@ export default function PersonaPage() {
             </div>
 
             <p className="text-slate-400 text-sm mb-6">
-              じゃらんやGoogleマップの口コミページURLを登録すると、実際の口コミを収集・分析できます。
+              じゃらんの口コミページURLを登録すると、実際の口コミを収集・分析できます。
             </p>
 
             <div className="space-y-4 mb-6">
@@ -1103,18 +1100,6 @@ export default function PersonaPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm text-slate-300 mb-2">
-                  Googleマップ 口コミURL
-                </label>
-                <input
-                  type="url"
-                  value={googleUrl}
-                  onChange={(e) => setGoogleUrl(e.target.value)}
-                  placeholder="https://www.google.com/maps/place/..."
-                  className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
             </div>
 
             {urlSaveMessage && (
@@ -1130,7 +1115,7 @@ export default function PersonaPage() {
             <div className="flex gap-4">
               <button
                 onClick={handleSaveReviewUrls}
-                disabled={savingUrls || (!jalanUrl.trim() && !googleUrl.trim())}
+                disabled={savingUrls || !jalanUrl.trim()}
                 className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {savingUrls ? (
@@ -1181,17 +1166,6 @@ export default function PersonaPage() {
                     >
                       <ExternalLink className="w-4 h-4" />
                       じゃらん: {reviewUrls.jalan.substring(0, 50)}...
-                    </a>
-                  )}
-                  {reviewUrls.google && (
-                    <a
-                      href={reviewUrls.google}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      Google: {reviewUrls.google.substring(0, 50)}...
                     </a>
                   )}
                 </div>

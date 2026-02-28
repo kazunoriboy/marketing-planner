@@ -101,7 +101,6 @@ class HotelResponse(BaseModel):
 class ReviewUrlsUpdate(BaseModel):
     """口コミURL更新リクエスト"""
     jalan: Optional[str] = None
-    google: Optional[str] = None
 
 
 class ReviewUrlsResponse(BaseModel):
