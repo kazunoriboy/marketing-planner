@@ -233,6 +233,7 @@ async def generate_creative_assets_authenticated(
                 llm_client=llm_client_image,
                 hotel_id=hotel_id,
                 reference_images=reference_payload,
+                hotel_info={"name": hotel.name, "address": hotel.address or ""},
             )
             ad_image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
@@ -540,6 +541,7 @@ async def generate_creative_assets(
                 llm_client=llm_client_image,
                 hotel_id=hotel.id,
                 reference_images=reference_payload,
+                hotel_info={"name": hotel.name, "address": hotel.address or ""} if hotel else None,
             )
             image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
