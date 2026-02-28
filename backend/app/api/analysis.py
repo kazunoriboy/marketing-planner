@@ -892,8 +892,8 @@ async def update_review_urls(
 ):
     """
     口コミURLを登録・更新
-    
-    じゃらん、Googleマップなどの口コミページURLを登録します。
+
+    じゃらんの口コミページURLを登録します。
     """
     hotel = session.get(Hotel, hotel_id)
     if not hotel:
@@ -910,14 +910,6 @@ async def update_review_urls(
                 detail="じゃらんのURLの形式が不正です"
             )
         new_urls["jalan"] = urls.jalan
-    
-    if urls.google:
-        if not review_service.validate_url(urls.google, "google"):
-            raise HTTPException(
-                status_code=400,
-                detail="GoogleマップのURLの形式が不正です"
-            )
-        new_urls["google"] = urls.google
     
     # 既存のURLとマージ
     current_urls = hotel.review_urls or {}

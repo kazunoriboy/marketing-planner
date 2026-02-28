@@ -112,7 +112,7 @@ class DifyClient:
         
         Args:
             review_url: 口コミページのURL
-            site_type: サイトタイプ（jalan/google）
+            site_type: サイトタイプ（jalan）
             user: ユーザー識別子
         
         Returns:
