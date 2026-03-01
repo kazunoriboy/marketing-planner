@@ -479,8 +479,8 @@ async def save_lp_to_file(
         
         # 画像URLを取得（エラー情報を含まない実際の画像パスのみ）
         image_urls = {}
-        if asset.ad_image_urls:
-            for key, value in asset.ad_image_urls.items():
+        if asset.lp_image_urls:
+            for key, value in asset.lp_image_urls.items():
                 if isinstance(value, str) and value.startswith("/static/"):
                     image_urls[key] = value
         
@@ -566,7 +566,7 @@ async def generate_creative_assets(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
-        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
+        llm_client_image = get_llm_client(model_name="gemini-2.0-flash-exp")
         
         lp_code = None
         lp_prompt = None

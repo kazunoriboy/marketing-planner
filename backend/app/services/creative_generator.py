@@ -6,7 +6,6 @@ from typing import Dict, Optional, Tuple
 from app.models import MarketingPlan
 from app.core.language import get_language_instruction, get_language_name, is_japanese
 
-
 class CreativeGenerator:
     """クリエイティブアセット生成サービス"""
     
@@ -82,8 +81,8 @@ class CreativeGenerator:
                 if f"/static/lp/{hotel_id}/" in url:
                     filename = url.split("/")[-1]
                     relative_path = f"./{filename}"
-                elif "/hotel_images/" in url:
-                    # 施設画像は S3 経由のため絶対パスのまま（変換しない）
+                elif "/hotel_images/" in url or "/generated_images/" in url:
+                    # S3 経由で配信される画像は絶対パスのまま（変換しない）
                     relative_path = url
                 else:
                     # その他の画像（広告用など）は../で上に上がる
@@ -193,12 +192,12 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
             (画像URL辞書, 生成ログ) のタプル
         """
         # 画像保存ディレクトリを作成
-        image_dir = os.path.join("static", save_subdir, str(hotel_id))
+        image_dir = os.path.join(self.static_dir, save_subdir, str(hotel_id))
         os.makedirs(image_dir, exist_ok=True)
-        
+
         image_urls = {}
         generation_log = []
-        
+
         for image_type, config in image_configs.items():
             try:
                 # 画像を生成
@@ -206,17 +205,16 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
                     prompt=config["prompt"],
                     aspect_ratio=config.get("aspect_ratio", "16:9")
                 )
-                
+
                 # ファイル拡張子を決定
                 ext = "png" if "png" in mime_type else "jpg"
                 filename = f"{prefix}{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
                 filepath = os.path.join(image_dir, filename)
-                
+
                 # 画像を保存
                 with open(filepath, "wb") as f:
                     f.write(image_data)
-                
-                # URLパスを保存（save_subdirに応じたパス）
+
                 image_urls[image_type] = f"/static/{save_subdir}/{hotel_id}/{filename}"
                 generation_log.append(f"{image_type}: 生成成功")
                 
