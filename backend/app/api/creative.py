@@ -29,6 +29,70 @@ AD_IMAGE_TYPE_PREFERENCES = {
     "display_vertical": ("bath", "room", "interior", "sightseeing", "other"),
 }
 
+# LP 画像スロットと割り当て優先 type の順
+_LP_IMAGE_SLOT_PREFERENCES: Dict[str, Tuple] = {
+    "hero":        ("exterior", "lobby", "interior", "other"),
+    "feature1":    ("room", "interior", "other"),
+    "feature2":    ("bath", "room", "other"),
+    "feature3":    ("cuisine", "restaurant", "other"),
+    "surrounding": ("sightseeing", "exterior", "other"),
+    "ambiance":    ("interior", "other", "exterior"),
+}
+
+
+def _map_facility_images_for_lp(hotel: Hotel) -> Dict[str, str]:
+    """
+    施設画像（facility_images）を LP 用スロットにマッピングして返す。
+
+    各スロットに type の優先順で未使用画像を割り当てる。
+    有効な画像（/static/hotel_images/ から始まる URL）のみを対象とし、
+    1枚の画像を複数スロットに重複使用しない。
+
+    Returns:
+        {slot_name: url} の辞書。有効な画像が 0 件なら空辞書を返す。
+    """
+    images = hotel.facility_images or []
+    valid_images = [
+        item for item in images
+        if isinstance(item, dict)
+        and isinstance(item.get("url"), str)
+        and item["url"].startswith("/static/hotel_images/")
+    ]
+    if not valid_images:
+        return {}
+
+    valid_images.sort(key=lambda x: (x.get("order", 9999), str(x.get("key", ""))))
+
+    used_keys: set = set()
+    result: Dict[str, str] = {}
+
+    for slot, preferences in _LP_IMAGE_SLOT_PREFERENCES.items():
+        chosen = None
+        for preferred_type in preferences:
+            for item in valid_images:
+                if item.get("type") != preferred_type:
+                    continue
+                if item.get("key") in used_keys:
+                    continue
+                chosen = item
+                break
+            if chosen:
+                break
+
+        # 優先 type で見つからなければ未使用の先頭画像を使う
+        if not chosen:
+            for item in valid_images:
+                if item.get("key") not in used_keys:
+                    chosen = item
+                    break
+
+        if chosen:
+            result[slot] = chosen["url"]
+            if chosen.get("key"):
+                used_keys.add(chosen["key"])
+
+    return result
+
 
 def _select_ad_reference_images(hotel: Hotel) -> Tuple[Dict[str, dict], str]:
     """施設画像（S3配信URL）を広告枠ごとの参照画像として選定する。"""
@@ -197,14 +261,23 @@ async def generate_creative_assets_authenticated(
         ota_text = {}
         ota_text_prompt = None
         
-        # LP用画像を先に生成（LPで使用するため）
+        # LP用画像: 施設登録済み画像を優先して転用し、未登録の場合のみ AI 生成
         if request.generate_lp:
-            lp_image_urls, lp_image_gen_prompt = await generator.generate_lp_images(
-                marketing_plan=marketing_plan,
-                llm_client=llm_client_image,
-                hotel_id=hotel_id
-            )
-        
+            mapped = _map_facility_images_for_lp(hotel)
+            if mapped:
+                lp_image_urls = mapped
+                lp_image_gen_prompt = (
+                    "【LP画像】施設画像（facility_images）をスロットにマッピングして使用しました。\n"
+                    + "\n".join(f"- {slot}: {url}" for slot, url in mapped.items())
+                )
+            else:
+                # 施設画像未登録の場合のみ AI 生成にフォールバック
+                lp_image_urls, lp_image_gen_prompt = await generator.generate_lp_images(
+                    marketing_plan=marketing_plan,
+                    llm_client=llm_client_image,
+                    hotel_id=hotel_id
+                )
+
         # 広告用画像を生成
         if request.generate_images:
             selected_refs, selection_log = _select_ad_reference_images(hotel)
@@ -239,12 +312,13 @@ async def generate_creative_assets_authenticated(
         
         # LP生成（LP用画像URLとホテル情報を渡す）
         if request.generate_lp:
-            # 成功した画像URLのみを抽出（エラー情報を除外）
-            valid_lp_image_urls = {}
-            for key, value in lp_image_urls.items():
-                if isinstance(value, str) and value.startswith("/static/"):
-                    valid_lp_image_urls[key] = value
-            
+            # 有効な静的URLのみを抽出（エラー情報・不正値を除外）
+            valid_lp_image_urls = {
+                key: value
+                for key, value in lp_image_urls.items()
+                if isinstance(value, str) and value.startswith("/static/")
+            }
+
             lp_code, lp_prompt = await generator.generate_landing_page(
                 marketing_plan=marketing_plan,
                 llm_client=llm_client_lp,
