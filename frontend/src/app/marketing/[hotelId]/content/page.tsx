@@ -52,6 +52,15 @@ export default function ContentPage() {
   const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
   const [modalImageTitle, setModalImageTitle] = useState<string>("");
   
+  // トースト通知のstate
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2000);
+  };
+
   // SNS投稿ジェネレーター関連のstate
   const [snsPlatform, setSnsPlatform] = useState<string>("");
   const [snsPostType, setSnsPostType] = useState<string>("");
@@ -660,7 +669,7 @@ export default function ContentPage() {
 
                 const copyText = (text: string) => {
                   navigator.clipboard.writeText(text);
-                  alert("コピーしました");
+                  showToast("コピーしました");
                 };
 
                 const LenBadge = ({ count, limit }: { count: number; limit: number }) => (
@@ -679,11 +688,11 @@ export default function ContentPage() {
                       <MessageSquare className="w-6 h-6 text-green-400" />
                       <h4 className="text-xl font-bold text-white">広告コピー</h4>
                     </div>
-                    <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
 
                       {/* Google 検索広告（RSA） */}
                       {google_ads && (
-                        <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/10 border border-blue-700/30 rounded-xl p-6">
+                        <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/10 border border-blue-700/30 rounded-xl p-5">
                           <div className="flex items-center justify-between mb-4">
                             <h5 className="text-base font-semibold text-blue-300">Google 検索広告（RSA）</h5>
                             <button
@@ -760,7 +769,7 @@ export default function ContentPage() {
 
                       {/* Facebook 広告 */}
                       {facebook_ads && (
-                        <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/10 border border-indigo-700/30 rounded-xl p-6">
+                        <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/10 border border-indigo-700/30 rounded-xl p-5">
                           <div className="flex items-center justify-between mb-4">
                             <h5 className="text-base font-semibold text-indigo-300">Facebook 広告</h5>
                             <button
@@ -840,9 +849,9 @@ export default function ContentPage() {
 
                       {/* Instagram 広告 */}
                       {instagram_ads && (
-                        <div className="bg-gradient-to-br from-pink-900/30 to-rose-800/10 border border-pink-700/30 rounded-xl p-6">
+                        <div className="bg-gradient-to-br from-purple-900/20 to-violet-900/10 border border-purple-700/25 rounded-xl p-5">
                           <div className="flex items-center justify-between mb-4">
-                            <h5 className="text-base font-semibold text-pink-300">Instagram 広告</h5>
+                            <h5 className="text-base font-semibold text-purple-300">Instagram 広告</h5>
                             <button
                               onClick={() => {
                                 const sections = (instagram_ads.primary_texts || []).map((pt, i) =>
@@ -851,7 +860,7 @@ export default function ContentPage() {
                                 const tags = (instagram_ads.hashtags || []).join(" ");
                                 copyText([...sections, `Hashtags: ${tags}`].join("\n\n"));
                               }}
-                              className="text-xs px-3 py-1 rounded bg-pink-700/30 text-pink-300 hover:bg-pink-700/50 transition-colors"
+                              className="text-xs px-3 py-1 rounded bg-purple-700/25 text-purple-300 hover:bg-purple-700/40 transition-colors"
                             >
                               全コピー
                             </button>
@@ -920,7 +929,7 @@ export default function ContentPage() {
                                   <button
                                     key={i}
                                     onClick={() => copyText(tag)}
-                                    className="text-xs px-2 py-1 rounded-full bg-pink-900/30 text-pink-300 hover:bg-pink-900/50 transition-colors"
+                                    className="text-xs px-2 py-1 rounded-full bg-purple-900/20 text-purple-300 hover:bg-purple-900/35 transition-colors"
                                   >
                                     {tag}
                                   </button>
@@ -1605,6 +1614,16 @@ export default function ContentPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {/* コピー完了トースト */}
+      {toast && createPortal(
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-600 shadow-xl text-sm text-white animate-fadeIn">
+            <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+            {toast}
           </div>
         </div>,
         document.body
