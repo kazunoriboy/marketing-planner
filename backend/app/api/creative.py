@@ -566,7 +566,7 @@ async def generate_creative_assets(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
-        llm_client_image = get_llm_client(model_name="gemini-2.0-flash-exp")
+        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
         
         lp_code = None
         lp_prompt = None
