@@ -938,26 +938,46 @@ async def upload_lp_image(
     lp_image_urls[image_type] = new_image_url
     asset.lp_image_urls = lp_image_urls
     
+    # 他スロットに割り当てられている画像パスを収集（フォールバック検出用）
+    other_slot_paths = set()
+    for key, val in lp_image_urls.items():
+        if key != image_type and isinstance(val, str):
+            other_slot_paths.add(val)
+
     # 画像パス置換用のヘルパー関数
     def replace_image_path(content: str, old_name: str | None, new_name: str) -> str:
         """HTMLコンテンツ内の画像パスを置換"""
+        new_relative = f"./{new_name}"
+        content_before = content
+
+        # 1) 旧パスのフルパスで置換（施設画像 /static/hotel_images/... 等に対応）
+        if old_image_path:
+            content = content.replace(old_image_path, new_relative)
+
+        # 2) ファイル名ベースの置換
         if old_name:
-            # 古いファイル名を新しいファイル名に置換（相対パス形式）
-            content = content.replace(f"./{old_name}", f"./{new_name}")
-            content = content.replace(f'"{old_name}"', f'"./{new_name}"')
-            content = content.replace(f"'{old_name}'", f"'./{new_name}'")
-            # 絶対パス形式も対応
-            content = content.replace(f"/static/lp/{hotel_id}/{old_name}", f"./{new_name}")
-        
-        # 画像タイプに基づいた正規表現パターンでも置換（より確実な置換）
-        # hero_XXXXXXXX.jpg, feature_XXXXXXXX.png などのパターンに対応
-        pattern = rf"\./{image_type}_[a-f0-9]+\.(jpg|jpeg|png|webp)"
-        content = re.sub(pattern, f"./{new_name}", content)
-        
-        # url('...') パターンにも対応
-        pattern_url = rf"url\(['\"]?\./{image_type}_[a-f0-9]+\.(jpg|jpeg|png|webp)['\"]?\)"
-        content = re.sub(pattern_url, f"url('./{new_name}')", content)
-        
+            content = content.replace(f"./{old_name}", new_relative)
+            content = content.replace(f'"{old_name}"', f'"{new_relative}"')
+            content = content.replace(f"'{old_name}'", f"'{new_relative}'")
+            content = content.replace(f"/static/lp/{hotel_id}/{old_name}", new_relative)
+
+        # 3) 画像タイプに基づいた正規表現パターンでも置換
+        pattern = rf"\./{re.escape(image_type)}_[a-f0-9]+\.(jpg|jpeg|png|webp)"
+        content = re.sub(pattern, new_relative, content)
+
+        pattern_url = rf"url\(['\"]?\./{re.escape(image_type)}_[a-f0-9]+\.(jpg|jpeg|png|webp)['\"]?\)"
+        content = re.sub(pattern_url, f"url('{new_relative}')", content)
+
+        # 4) フォールバック: 上記で置換が発生しなかった場合、
+        #    HTML内の hotel_images パスのうち他スロットに属さないものを置換
+        if content == content_before:
+            hotel_img_pattern = rf'/static/hotel_images/{hotel_id}/[^\s"\')\]]+\.\w+'
+            orphan_paths = set(re.findall(hotel_img_pattern, content))
+            orphan_paths -= other_slot_paths
+            for orphan in orphan_paths:
+                print(f"フォールバック置換: {orphan} → {new_relative}")
+                content = content.replace(orphan, new_relative)
+
         return content
     
     # DB内のlp_source_codeを更新
