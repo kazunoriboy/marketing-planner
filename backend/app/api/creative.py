@@ -247,8 +247,8 @@ async def generate_creative_assets_authenticated(
         llm_client = get_llm_client()
         # LP生成用（gemini-3-pro-preview）
         llm_client_lp = get_llm_client(model_name="gemini-3-pro-preview")
-        # 画像生成用（gemini-3-pro-image-preview）
-        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
+        # 画像生成用
+        llm_client_image = get_llm_client(model_name="gemini-3.1-flash-image-preview")
         
         lp_code = None
         lp_prompt = None
@@ -566,7 +566,7 @@ async def generate_creative_assets(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
-        llm_client_image = get_llm_client(model_name="gemini-3-pro-image-preview")
+        llm_client_image = get_llm_client(model_name="gemini-3.1-flash-image-preview")
         
         lp_code = None
         lp_prompt = None
