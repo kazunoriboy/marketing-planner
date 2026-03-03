@@ -825,11 +825,39 @@ export interface CreativeAsset {
   lp_preview_url: string | null;
   lp_image_urls: Record<string, unknown>;
   ad_image_urls: Record<string, unknown>;
-  ad_copy: Record<string, unknown>;
+  ad_copy: AdCopyContent;
   ota_text: OTATextContent;
   generation_prompts: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+// 広告コピーの型定義
+export interface GoogleAdsContent {
+  headlines: string[];
+  descriptions: string[];
+  path1?: string;
+  path2?: string;
+}
+
+export interface FacebookAdsContent {
+  primary_texts: string[];
+  headlines: string[];
+  descriptions: string[];
+  cta: string;
+}
+
+export interface InstagramAdsContent {
+  primary_texts: string[];
+  headlines: string[];
+  descriptions: string[];
+  hashtags: string[];
+}
+
+export interface AdCopyContent {
+  google_ads: GoogleAdsContent;
+  facebook_ads: FacebookAdsContent;
+  instagram_ads: InstagramAdsContent;
 }
 
 // OTAテキストの型定義
