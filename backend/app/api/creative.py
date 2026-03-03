@@ -890,7 +890,7 @@ async def upload_lp_image(
         raise HTTPException(status_code=404, detail="クリエイティブアセットが見つかりません")
     
     # 画像タイプの検証
-    valid_types = ["hero", "feature", "ambiance"]
+    valid_types = ["hero", "feature", "feature1", "feature2", "feature3", "surrounding", "ambiance"]
     if image_type not in valid_types:
         raise HTTPException(
             status_code=400, 

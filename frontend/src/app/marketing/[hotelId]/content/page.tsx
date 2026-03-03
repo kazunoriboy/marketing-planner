@@ -42,7 +42,7 @@ export default function ContentPage() {
   
   // 画像アップロード確認モーダル関連のstate
   const [pendingImageUpload, setPendingImageUpload] = useState<{
-    imageType: "hero" | "feature" | "ambiance";
+    imageType: string;
     file: File;
     previewUrl: string;
   } | null>(null);
@@ -187,7 +187,7 @@ export default function ContentPage() {
   // LP画像をアップロード
   const handleImageUpload = async (
     assetId: number,
-    imageType: "hero" | "feature" | "ambiance",
+    imageType: string,
     file: File
   ) => {
     setUploadingImage(imageType);
@@ -556,7 +556,7 @@ export default function ContentPage() {
                         {Object.entries(currentAsset.lp_image_urls).map(([key, value]) => {
                           const imageValue = value as Record<string, unknown> | string | null;
                           const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
-                          const isValidType = ["hero", "feature", "ambiance"].includes(key);
+                          const isValidType = ["hero", "feature", "feature1", "feature2", "feature3", "surrounding", "ambiance"].includes(key);
                           const isUploading = uploadingImage === key;
                           
                           return (
@@ -581,7 +581,7 @@ export default function ContentPage() {
                                       // ファイルを選択したらプレビューを表示（即座にアップロードしない）
                                       const previewUrl = URL.createObjectURL(file);
                                       setPendingImageUpload({
-                                        imageType: key as "hero" | "feature" | "ambiance",
+                                        imageType: key,
                                         file,
                                         previewUrl,
                                       });

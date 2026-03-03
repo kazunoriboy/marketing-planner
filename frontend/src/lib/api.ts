@@ -1552,7 +1552,7 @@ export const marketingApi = {
   async uploadLpImage(
     hotelId: number,
     assetId: number,
-    imageType: "hero" | "feature" | "ambiance",
+    imageType: string,
     file: File
   ): Promise<{
     message: string;
