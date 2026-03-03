@@ -20,13 +20,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """hotelsテーブルにfacility_imagesカラムを追加"""
-    op.add_column(
-        'hotels',
-        sa.Column('facility_images', postgresql.JSONB(), nullable=True, server_default='[]')
-    )
+    """hotelsテーブルにfacility_imagesカラムを追加（既存の場合はスキップ）"""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'hotels' AND column_name = 'facility_images'"
+        )
+    ).scalar()
+    if result is None:
+        op.add_column(
+            'hotels',
+            sa.Column('facility_images', postgresql.JSONB(), nullable=True, server_default='[]')
+        )
 
 
 def downgrade() -> None:
-    """facility_imagesカラムを削除"""
-    op.drop_column('hotels', 'facility_images')
+    """facility_imagesカラムを削除（存在する場合のみ）"""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'hotels' AND column_name = 'facility_images'"
+        )
+    ).scalar()
+    if result is not None:
+        op.drop_column('hotels', 'facility_images')

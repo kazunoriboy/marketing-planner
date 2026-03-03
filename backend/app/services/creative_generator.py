@@ -739,42 +739,59 @@ The image should make viewers want to book immediately.""",
     async def generate_ad_copy(
         self,
         marketing_plan: MarketingPlan,
-        llm_client
-    ) -> Tuple[Dict, str]:
+        llm_client,
+        hotel_info: Dict = None
+    ) -> Tuple[Dict, str, list]:
         """
         広告コピーを生成
-        
+
         Args:
             marketing_plan: マーケティングプラン
             llm_client: LLMクライアント
-        
+            hotel_info: 施設情報（name, address）
+
         Returns:
-            (広告コピー辞書, 生成プロンプト) のタプル
+            (広告コピー辞書, 生成プロンプト, warnings) のタプル
         """
         # ターゲット言語を取得
         target_language = self._get_target_language(marketing_plan)
         language_instruction = get_language_instruction(target_language)
         language_name = get_language_name(target_language)
-        
-        prompt = self._create_ad_copy_generation_prompt(marketing_plan, target_language)
-        
-        system_prompt = f"""あなたは宿泊業界の経験豊富なコピーライターです。
-魅力的で効果的な広告コピーを作成してください。
+
+        prompt = self._create_ad_copy_generation_prompt(marketing_plan, target_language, hotel_info=hotel_info)
+
+        system_prompt = f"""あなたは広告コピーライターの専門家です。
+ホテル・旅館の予約促進広告において、クリック率と予約転換率を最大化するコピーを作成してください。
+
+【Google 検索広告（RSA）のコピー原則】
+- どの見出し3本の組み合わせでも意味が完結するよう、各見出しは独立して成立させる
+- ブランド訴求・ベネフィット訴求・限定性訴求など、異なる角度から書く
+- 検索意図（旅行先探し・宿泊予約）に直結したキーワードを自然に含める
+
+【Meta 広告（Facebook / Instagram）のコピー原則】
+- Primary Text の冒頭1〜2行がフィードの「続きを見る」折りたたみ前に表示される唯一のチャンス
+- フック（冒頭）→ 価値提示 → CTA の構造を守る
+- 3案は「感情訴求」「お得・特典訴求」「問題解決訴求」で明確に角度を変える
 
 【重要：出力言語】
 {language_instruction}
 すべての広告コピーを{language_name}で作成してください。"""
-        
+
         response = await llm_client.generate_structured_output(
             user_prompt=prompt,
             system_prompt=system_prompt,
-            max_tokens=2000
+            max_tokens=3000
         )
-        
+
         # コピーを抽出
         ad_copy = self._parse_ad_copy(response)
-        
-        return ad_copy, prompt
+
+        # 文字数バリデーション
+        warnings = self._validate_ad_copy_lengths(ad_copy)
+        if warnings:
+            print(f"広告コピー文字数警告: {warnings}")
+
+        return ad_copy, prompt, warnings
     
     def _create_lp_generation_prompt(
         self, 
@@ -955,45 +972,130 @@ The image should make viewers want to book immediately.""",
 }}
 """
     
-    def _create_ad_copy_generation_prompt(self, plan: MarketingPlan, target_language: str = "ja") -> str:
+    def _create_ad_copy_generation_prompt(self, plan: MarketingPlan, target_language: str = "ja", hotel_info: Dict = None) -> str:
         """広告コピー生成プロンプトを作成"""
         language_instruction = get_language_instruction(target_language)
         language_name = get_language_name(target_language)
-        
+
+        # 施設情報セクション
+        hotel_section = ""
+        if hotel_info:
+            hotel_section = f"""
+【施設情報】
+施設名: {hotel_info.get('name', '')}
+所在地: {hotel_info.get('address', '')}
+"""
+
+        # 価格帯
+        price_section = ""
+        if getattr(plan, 'price_range', None):
+            price_section = f"価格帯: {plan.price_range}\n"
+
+        # 競合差別化（3C分析）
+        strategy_section = ""
+        strategy_3c = getattr(plan, 'strategy_3c', None)
+        if strategy_3c and isinstance(strategy_3c, dict):
+            customer_value = strategy_3c.get('customer_value', '')
+            competitor_diff = strategy_3c.get('competitor_diff', '')
+            if customer_value or competitor_diff:
+                strategy_section = f"""
+【競合差別化ポイント（3C分析）】
+顧客価値: {customer_value}
+競合との差別化: {competitor_diff}
+"""
+
         return f"""
-以下のマーケティングプランに基づいて、複数の広告コピーを作成してください。
-
-【重要：出力言語】
-{language_instruction}
-すべての広告コピーを{language_name}で作成してください。
-
+以下のマーケティングプランに基づいて、各プラットフォーム向け広告コピーを作成してください。
+{hotel_section}
 【プラン情報】
 プラン名: {plan.plan_name}
 コンセプト: {plan.concept}
 ターゲット層: {json.dumps(plan.target_audience, ensure_ascii=False)}
 特典: {json.dumps(plan.benefits, ensure_ascii=False)}
+{price_section}{strategy_section}
+広告コピーの文字数制限は厳密に守ってください。
+【Google広告 - レスポンシブ検索広告（RSA）】
+- headlines: 5本生成。1件あたり15文字以内厳守
+  - 見出し#1: 施設のUSP・際立った特徴（例:「源泉かけ流し 露天風呂付き客室」）
+  - 見出し#2: ターゲットが得るベネフィット・体験価値（例:「日常を忘れる癒しの2日間」）
+  - 見出し#3: 限定性・希少性（例:「週末限定 特別会席プラン」）
+  - 見出し#4: 社会的証明・信頼性（例:「口コミ評価4.8 選ばれる宿」）
+  - 見出し#5: CTA・行動促進（例:「今すぐ予約で特典付き」）
+  - どの3本の組み合わせでも意味が完結するよう、各見出しは独立して成立させること
+- descriptions: 3本生成。1件あたり45文字以内厳守
+- path1: サービスカテゴリを表す短い語。15文字以内。
+- path2: 地域名またはプラン名。15文字以内。
 
-以下のJSON形式で出力してください（すべて{language_name}で記述）：
+【Meta広告（Facebook）】
+- primary_texts: 125文字以内厳守、3案生成、冒頭1〜2行をフック（読者の注意を引く文）→ 価値提示 → CTAの構造で書く。
+  - 案1: 感情・ストーリー訴求（例:「〇〇に疲れていませんか？」で始める）
+  - 案2: お得・特典訴求（例:「【期間限定】〇〇が無料でついてくるプラン」で始める）
+  - 案3: 問題解決・ニーズ直撃（例:「〇〇をお探しなら、このプランがぴったりです」で始める）
+- headlines: 3案生成。各40文字以内を目安（超過で省略されやすい）。
+- descriptions: 3案生成。各20〜30文字程度を目安（表示されない配置も多い）。
+- cta: "詳しくはこちら" / "今すぐ予約" / "お問い合わせ" から最適なものを1つ。
+
+【Meta広告（Instagram）】
+- primary_texts:  125文字以内厳守、3案生成、冒頭1〜2行をフック（読者の注意を引く文）→ 価値提示 → CTAの構造で書く
+  （Facebookと同様の3角度で、Instagramユーザー向けに調整）
+- headlines: 3案生成。各40文字以内を目安。
+- descriptions: 3案生成。各20〜30文字程度を目安。
+- hashtags: ホテル名・地域・体験カテゴリを含む10〜15個程度。
+
+以下のJSON形式のみで出力してください（すべて{language_name}で記述。コードブロック不要）：
 {{
-    "headline": {{
-        "main": "メインキャッチコピー",
-        "sub": "サブコピー"
-    }},
     "google_ads": {{
-        "title_1": "Google広告タイトル1",
-        "title_2": "Google広告タイトル2",
-        "description": "説明文"
+        "headlines": [
+            "見出し1（USP・特徴）",
+            "見出し2（ベネフィット）",
+            "見出し3（限定性）",
+            "見出し4（社会的証明）",
+            "見出し5（CTA）"
+        ],
+        "descriptions": [
+            "説明文1（全角45文字以内）",
+            "説明文2",
+            "説明文3"
+        ],
+        "path1": "パス1（15文字以内）",
+        "path2": "パス2（15文字以内）"
     }},
     "facebook_ads": {{
-        "primary_text": "Facebook広告メインテキスト",
-        "headline": "見出し",
-        "description": "説明文"
+        "primary_texts": [
+            "案1（感情訴求・フック→価値提示→CTA）",
+            "案2（お得・特典訴求）",
+            "案3（問題解決訴求）"
+        ],
+        "headlines": [
+            "見出し案1",
+            "見出し案2",
+            "見出し案3"
+        ],
+        "descriptions": [
+            "説明文案1",
+            "説明文案2",
+            "説明文案3"
+        ],
+        "cta": "詳しくはこちら"
     }},
-    "instagram_caption": {{
-        "main_text": "Instagram投稿テキスト",
-        "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2", "#ハッシュタグ3"]
-    }},
-    "email_subject": "メール件名"
+    "instagram_ads": {{
+        "primary_texts": [
+            "案1（感情訴求）",
+            "案2（お得・特典訴求）",
+            "案3（問題解決訴求）"
+        ],
+        "headlines": [
+            "見出し案1",
+            "見出し案2",
+            "見出し案3"
+        ],
+        "descriptions": [
+            "説明文案1",
+            "説明文案2",
+            "説明文案3"
+        ],
+        "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2"]
+    }}
 }}
 """
     
@@ -1060,26 +1162,78 @@ The image should make viewers want to book immediately.""",
         except Exception as e:
             print(f"広告コピー解析エラー: {e}")
             return {
-                "headline": {
-                    "main": "特別なひとときを、あなたに",
-                    "sub": "心に残る宿泊体験をお届けします"
-                },
                 "google_ads": {
-                    "title_1": "今だけ特別プラン",
-                    "title_2": "快適な宿泊をお約束",
-                    "description": "ゆったりとした客室で、くつろぎのひとときを。特別な特典もご用意しております。"
+                    "headlines": [
+                        "特別な宿泊体験をあなたに",
+                        "日常を忘れる癒しの時間",
+                        "週末限定 特別プラン",
+                        "口コミ高評価の人気施設",
+                        "今すぐ予約で特典付き"
+                    ],
+                    "descriptions": [
+                        "ゆったりとした客室で、くつろぎのひとときを。特別な特典もご用意しております。",
+                        "心に残る宿泊体験をお届けします。ご予約はお早めに。",
+                        "上質なサービスと快適な環境で、忘れられない旅をお楽しみください。"
+                    ],
+                    "path1": "宿泊予約",
+                    "path2": "特別プラン"
                 },
                 "facebook_ads": {
-                    "primary_text": "日常を忘れて、特別な時間を過ごしませんか？",
-                    "headline": "今だけの特別プラン",
-                    "description": "詳しくはこちら"
+                    "primary_texts": [
+                        "日常の喧騒から離れて、本当の意味でリフレッシュしたいと思いませんか？\n\n当施設では、心と体を癒す特別な時間をご用意しています。\n\n今すぐご予約を。",
+                        "【期間限定】特別プランが登場！\n\n通常より特典充実のこのプランは、数量限定です。\n\nお早めにご予約ください。",
+                        "特別な宿泊先をお探しなら、このプランがぴったりです。\n\n上質なサービスと快適な環境で、忘れられない旅をお届けします。"
+                    ],
+                    "headlines": [
+                        "特別なひとときを、あなたに",
+                        "期間限定 特別プラン公開中",
+                        "理想の宿泊体験がここに"
+                    ],
+                    "descriptions": [
+                        "心に残る宿泊体験をお届けします",
+                        "今だけの特別特典付きプラン",
+                        "上質なサービスで癒しの時間を"
+                    ],
+                    "cta": "詳しくはこちら"
                 },
-                "instagram_caption": {
-                    "main_text": "心に残る宿泊体験を。特別なひとときをお過ごしください。",
-                    "hashtags": ["#宿泊", "#旅行", "#癒し"]
-                },
-                "email_subject": "【特別プラン】ご予約受付中"
+                "instagram_ads": {
+                    "primary_texts": [
+                        "旅の疲れを癒す、特別な時間。\n\nここでしか体験できない宿泊プランをご用意しました。\n\n#旅行 #宿泊",
+                        "【お得情報】期間限定プラン公開中！\n\n特典盛りだくさんのこのプランをお見逃しなく。\n\n詳細はリンクから。",
+                        "理想の宿泊体験をお探しですか？\n\n上質な空間と温かいおもてなしで、特別な旅をご提供します。"
+                    ],
+                    "headlines": [
+                        "特別な宿泊体験",
+                        "期間限定プラン",
+                        "理想の旅がここに"
+                    ],
+                    "descriptions": [
+                        "心に残る旅をご提供",
+                        "特典付き限定プラン",
+                        "上質な空間でリフレッシュ"
+                    ],
+                    "hashtags": ["#宿泊", "#旅行", "#癒し", "#ホテル", "#旅館", "#温泉", "#観光", "#週末旅行", "#国内旅行", "#おすすめ宿"]
+                }
             }
+
+    def _validate_ad_copy_lengths(self, ad_copy: Dict) -> list:
+        """
+        生成された広告コピーの文字数を検証し、超過フィールドを返す
+        Google: 全角1文字 = 半角2文字でカウント
+        """
+        warnings = []
+
+        def hw_len(s: str) -> int:
+            return sum(2 if ord(c) > 0x7F else 1 for c in s)
+
+        for i, h in enumerate(ad_copy.get("google_ads", {}).get("headlines", [])):
+            if hw_len(h) > 30:
+                warnings.append(f"google_ads.headlines[{i}]: {hw_len(h)}文字（上限30）")
+        for i, d in enumerate(ad_copy.get("google_ads", {}).get("descriptions", [])):
+            if hw_len(d) > 90:
+                warnings.append(f"google_ads.descriptions[{i}]: {hw_len(d)}文字（上限90）")
+
+        return warnings
     
     async def generate_ota_text(
         self,

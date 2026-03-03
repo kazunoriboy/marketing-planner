@@ -258,6 +258,7 @@ async def generate_creative_assets_authenticated(
         ad_image_gen_prompt = None
         ad_copy = {}
         ad_copy_prompt = None
+        ad_copy_warnings = []
         ota_text = {}
         ota_text_prompt = None
         
@@ -334,11 +335,12 @@ async def generate_creative_assets_authenticated(
         
         # 広告コピー生成
         if request.generate_ad_copy:
-            ad_copy, ad_copy_prompt = await generator.generate_ad_copy(
+            ad_copy, ad_copy_prompt, ad_copy_warnings = await generator.generate_ad_copy(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client
+                llm_client=llm_client,
+                hotel_info={"name": hotel.name, "address": hotel.address or ""}
             )
-        
+
         # OTAテキスト生成（じゃらん、楽天トラベル向け）
         if request.generate_ota_text:
             ota_text, ota_text_prompt = await generator.generate_ota_text(
@@ -349,18 +351,19 @@ async def generate_creative_assets_authenticated(
                     "address": hotel.address,
                 }
             )
-        
+
         # 既存のアセットがあるか確認
         statement = select(CreativeAsset).where(
             CreativeAsset.marketing_plan_id == request.plan_id
         )
         existing_asset = session.exec(statement).first()
-        
+
         generation_prompts = {
             "lp_prompt": lp_prompt,
             "lp_image_generation_prompt": lp_image_gen_prompt,
             "ad_image_generation_prompt": ad_image_gen_prompt,
             "ad_copy_prompt": ad_copy_prompt,
+            "ad_copy_warnings": ad_copy_warnings,
             "ota_text_prompt": ota_text_prompt
         }
         
@@ -574,6 +577,7 @@ async def generate_creative_assets(
         image_gen_prompt = None
         ad_copy = {}
         ad_copy_prompt = None
+        ad_copy_warnings = []
         
         # LP生成
         if request.generate_lp:
@@ -621,21 +625,23 @@ async def generate_creative_assets(
         
         # 広告コピー生成
         if request.generate_ad_copy:
-            ad_copy, ad_copy_prompt = await generator.generate_ad_copy(
+            ad_copy, ad_copy_prompt, ad_copy_warnings = await generator.generate_ad_copy(
                 marketing_plan=marketing_plan,
-                llm_client=llm_client
+                llm_client=llm_client,
+                hotel_info={"name": hotel.name, "address": hotel.address or ""} if hotel else None
             )
-        
+
         # 既存のアセットがあるか確認
         statement = select(CreativeAsset).where(
             CreativeAsset.marketing_plan_id == request.marketing_plan_id
         )
         existing_asset = session.exec(statement).first()
-        
+
         generation_prompts = {
             "lp_prompt": lp_prompt,
             "image_generation_prompt": image_gen_prompt,
-            "ad_copy_prompt": ad_copy_prompt
+            "ad_copy_prompt": ad_copy_prompt,
+            "ad_copy_warnings": ad_copy_warnings
         }
         
         if existing_asset:
