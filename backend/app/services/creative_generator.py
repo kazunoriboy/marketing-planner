@@ -6,7 +6,6 @@ from typing import Dict, Optional, Tuple
 from app.models import MarketingPlan
 from app.core.language import get_language_instruction, get_language_name, is_japanese
 
-
 class CreativeGenerator:
     """クリエイティブアセット生成サービス"""
     
@@ -82,6 +81,9 @@ class CreativeGenerator:
                 if f"/static/lp/{hotel_id}/" in url:
                     filename = url.split("/")[-1]
                     relative_path = f"./{filename}"
+                elif "/hotel_images/" in url or "/generated_images/" in url:
+                    # S3 経由で配信される画像は絶対パスのまま（変換しない）
+                    relative_path = url
                 else:
                     # その他の画像（広告用など）は../で上に上がる
                     # /static/generated_images/5/xxx.png -> ../generated_images/5/xxx.png
@@ -146,7 +148,7 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
         response = await llm_client.generate_text(
             user_prompt=prompt,
             system_prompt=system_prompt,
-            max_tokens=8000
+            max_tokens=16000
         )
         
         # コードブロックを抽出
@@ -190,12 +192,12 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
             (画像URL辞書, 生成ログ) のタプル
         """
         # 画像保存ディレクトリを作成
-        image_dir = os.path.join("static", save_subdir, str(hotel_id))
+        image_dir = os.path.join(self.static_dir, save_subdir, str(hotel_id))
         os.makedirs(image_dir, exist_ok=True)
-        
+
         image_urls = {}
         generation_log = []
-        
+
         for image_type, config in image_configs.items():
             try:
                 # 画像を生成
@@ -203,17 +205,16 @@ HTML + CSS + JavaScript のシングルファイルで実装してください�
                     prompt=config["prompt"],
                     aspect_ratio=config.get("aspect_ratio", "16:9")
                 )
-                
+
                 # ファイル拡張子を決定
                 ext = "png" if "png" in mime_type else "jpg"
                 filename = f"{prefix}{image_type}_{uuid.uuid4().hex[:8]}.{ext}"
                 filepath = os.path.join(image_dir, filename)
-                
+
                 # 画像を保存
                 with open(filepath, "wb") as f:
                     f.write(image_data)
-                
-                # URLパスを保存（save_subdirに応じたパス）
+
                 image_urls[image_type] = f"/static/{save_subdir}/{hotel_id}/{filename}"
                 generation_log.append(f"{image_type}: 生成成功")
                 
@@ -817,33 +818,39 @@ The image should make viewers want to book immediately.""",
 公式サイト: {hotel_info.get('website', '') or '掲載なし'}
 """
         
+        # 画像スロットの役割ラベル（6スロット対応）
+        _LP_SLOT_LABELS = {
+            "hero":        "ヒーロー画像（施設外観・玄関などメインビジュアル）",
+            "feature1":    "客室紹介画像",
+            "feature2":    "風呂・温泉紹介画像",
+            "feature3":    "料理・食事紹介画像",
+            "surrounding": "周辺観光・景観画像",
+            "ambiance":    "雰囲気・内装画像",
+            # 旧スロット名との後方互換
+            "feature":     "特徴紹介画像",
+        }
+
         # 画像セクション
         image_section = ""
         if image_urls and len(image_urls) > 0:
-            image_section = """
-【使用する画像 - 必ず以下の画像をHTMLに埋め込んでください】
-"""
+            image_section = "【使用する画像 - 必ず以下の画像をHTMLに埋め込んでください】\n"
             for img_type, img_path in image_urls.items():
                 # パスをファイル名のみの相対パス（./xxx.png）に変換
-                if isinstance(img_path, str) and "/" in img_path:
+                if isinstance(img_path, str) and "/hotel_images/" in img_path:
+                    # 施設画像は S3 カスタムハンドラー経由のため絶対パスのまま使用
+                    relative_path = img_path
+                elif isinstance(img_path, str) and "/" in img_path:
                     filename = img_path.split("/")[-1]
                     relative_path = f"./{filename}"
                 else:
                     relative_path = img_path
-                
-                if img_type == "hero":
-                    image_section += f"- ヒーロー画像（メインビジュアル）: {relative_path}\n"
-                elif img_type == "feature":
-                    image_section += f"- 特徴紹介画像: {relative_path}\n"
-                elif img_type == "ambiance":
-                    image_section += f"- 雰囲気・ディテール画像: {relative_path}\n"
-                else:
-                    image_section += f"- {img_type}: {relative_path}\n"
-            
+                label = _LP_SLOT_LABELS.get(img_type, img_type)
+                image_section += f"- {label}: {relative_path}\n"
+
             image_section += """
 ※ 上記の画像パス（./xxx.png形式）をそのままimgタグのsrc属性に使用してください
 ※ ヒーロー画像はヒーローセクションの背景または大きな画像として使用
-※ 特徴画像は特徴・特典セクションで使用
+※ 客室・風呂・料理・周辺観光画像はそれぞれ対応するセクションで使用
 ※ 雰囲気画像は追加のビジュアルとして適宜使用
 """
         else:
