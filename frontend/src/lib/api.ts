@@ -71,6 +71,31 @@ export interface FacilityImageItem {
   order: number;
 }
 
+// 宿・周辺情報
+export interface HotelDetailAttraction {
+  name: string;
+  distance: string;
+}
+
+export interface HotelDetailSurrounding {
+  description: string;
+  attractions: HotelDetailAttraction[];
+}
+
+export interface HotelDetail {
+  story: string;
+  highlights: string[];
+  surrounding: HotelDetailSurrounding;
+  access: string;
+}
+
+export interface HotelDetailUpdateRequest {
+  story?: string;
+  highlights?: string[];
+  surrounding?: HotelDetailSurrounding;
+  access?: string;
+}
+
 export interface HotelCreateRequest {
   name: string;
   address: string;
@@ -684,6 +709,55 @@ export const facilityApi = {
         method: "PUT",
         body: JSON.stringify(assets),
       },
+      "facility"
+    );
+  },
+
+  /**
+   * 宿・周辺情報を取得
+   */
+  async getHotelDetail(hotelId: number): Promise<HotelDetail> {
+    return apiRequest<HotelDetail>(
+      `/facility/hotels/${hotelId}/detail`,
+      {},
+      "facility"
+    );
+  },
+
+  /**
+   * 宿・周辺情報を更新
+   */
+  async updateHotelDetail(hotelId: number, data: HotelDetailUpdateRequest): Promise<HotelDetail> {
+    return apiRequest<HotelDetail>(
+      `/facility/hotels/${hotelId}/detail`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+      "facility"
+    );
+  },
+
+  /**
+   * 公式サイトから宿情報を自動取得
+   */
+  async autoFillHotelDetail(hotelId: number): Promise<HotelDetail> {
+    return apiRequest<HotelDetail>(
+      `/facility/hotels/${hotelId}/detail/auto-fill`,
+      { method: "POST" },
+      "facility"
+    );
+  },
+
+  /**
+   * 市場分析データ（地域トレンド）から周辺観光情報を生成
+   */
+  async fillSurroundingFromMarket(
+    hotelId: number
+  ): Promise<{ surrounding: HotelDetailSurrounding }> {
+    return apiRequest<{ surrounding: HotelDetailSurrounding }>(
+      `/facility/hotels/${hotelId}/detail/fill-surrounding-from-market`,
+      { method: "POST" },
       "facility"
     );
   },
