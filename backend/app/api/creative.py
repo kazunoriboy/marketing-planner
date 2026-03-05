@@ -330,7 +330,8 @@ async def generate_creative_assets_authenticated(
                     "phone": hotel.phone,
                     "website": hotel.website,
                 },
-                image_urls=valid_lp_image_urls
+                image_urls=valid_lp_image_urls,
+                hotel_detail=hotel.hotel_detail or {}
             )
         
         # 広告コピー生成
