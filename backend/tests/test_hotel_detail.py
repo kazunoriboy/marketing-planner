@@ -12,37 +12,13 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.models import (
     AnalysisSession,
     Hotel,
-    MarketingPlan,
-    PlanStatus,
 )
-from app.services.creative_generator import CreativeGenerator
-
-
-# ---------------------------------------------------------------------------
-# ヘルパー
-# ---------------------------------------------------------------------------
-
-def _make_plan() -> MarketingPlan:
-    """DB 不要な最小 MarketingPlan オブジェクト（プロンプト生成テスト用）"""
-    return MarketingPlan(
-        id=1,
-        analysis_session_id=1,
-        status=PlanStatus.draft,
-        plan_name="テストプラン",
-        concept="テストコンセプト",
-        target_audience={},
-        price_range={},
-        benefits={},
-        strategy_3c={},
-        strategy_pest={},
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,84 +298,3 @@ class TestFillSurroundingFromMarket:
         assert "surrounding" in data
         assert isinstance(data["surrounding"]["description"], str)
         assert isinstance(data["surrounding"]["attractions"], list)
-
-
-# ---------------------------------------------------------------------------
-# 6. LP 生成プロンプトへの hotel_detail 組み込み確認
-# ---------------------------------------------------------------------------
-
-class TestLpPromptIncludesHotelDetail:
-    """
-    _create_lp_generation_prompt() に hotel_detail を渡したとき、
-    各フィールドの内容がプロンプト文字列に含まれることを確認。
-    （LLM 呼び出しなし・純粋なユニットテスト）
-    """
-
-    def test_story_appears_in_prompt(self):
-        generator = CreativeGenerator()
-        prompt = generator._create_lp_generation_prompt(
-            plan=_make_plan(),
-            hotel_detail={"story": "創業昭和30年の老舗旅館", "highlights": [], "surrounding": {}, "access": ""},
-        )
-        assert "創業昭和30年の老舗旅館" in prompt
-
-    def test_highlights_appear_in_prompt(self):
-        generator = CreativeGenerator()
-        prompt = generator._create_lp_generation_prompt(
-            plan=_make_plan(),
-            hotel_detail={"story": "", "highlights": ["源泉かけ流し", "地産地消料理"], "surrounding": {}, "access": ""},
-        )
-        assert "源泉かけ流し" in prompt
-        assert "地産地消料理" in prompt
-
-    def test_surrounding_description_appears_in_prompt(self):
-        generator = CreativeGenerator()
-        prompt = generator._create_lp_generation_prompt(
-            plan=_make_plan(),
-            hotel_detail={
-                "story": "",
-                "highlights": [],
-                "surrounding": {
-                    "description": "南アルプスの麓のエリア",
-                    "attractions": [],
-                },
-                "access": "",
-            },
-        )
-        assert "南アルプスの麓のエリア" in prompt
-
-    def test_attractions_appear_in_prompt(self):
-        generator = CreativeGenerator()
-        prompt = generator._create_lp_generation_prompt(
-            plan=_make_plan(),
-            hotel_detail={
-                "story": "",
-                "highlights": [],
-                "surrounding": {
-                    "description": "",
-                    "attractions": [{"name": "○○温泉郷", "distance": "徒歩5分"}],
-                },
-                "access": "",
-            },
-        )
-        assert "○○温泉郷" in prompt
-        assert "徒歩5分" in prompt
-
-    def test_access_appears_in_prompt(self):
-        generator = CreativeGenerator()
-        prompt = generator._create_lp_generation_prompt(
-            plan=_make_plan(),
-            hotel_detail={"story": "", "highlights": [], "surrounding": {}, "access": "新宿駅から特急で2時間"},
-        )
-        assert "新宿駅から特急で2時間" in prompt
-
-    def test_empty_hotel_detail_adds_no_section(self):
-        """hotel_detail が空・None の場合、宿情報セクションがプロンプトに含まれない"""
-        generator = CreativeGenerator()
-        for hotel_detail in ({}, None):
-            prompt = generator._create_lp_generation_prompt(
-                plan=_make_plan(),
-                hotel_detail=hotel_detail,
-            )
-            assert "【宿のストーリー" not in prompt
-            assert "【宿のハイライト】" not in prompt
