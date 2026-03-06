@@ -23,6 +23,7 @@ export default function ContentPage() {
     generate_images: true,
     generate_ad_copy: true,
     generate_ota_text: true,  // OTAテキスト（じゃらん、楽天トラベル向け）
+    lp_theme: "auto",
   });
   
   // プレビュー関連のstate
@@ -448,6 +449,28 @@ export default function ContentPage() {
                     OTAテキスト
                     <span className="text-xs text-slate-500 ml-1">（じゃらん・楽天）</span>
                   </label>
+                  {/* LP テーマ選択 */}
+                  {generateOptions.generate_lp && (
+                    <div className="mt-3">
+                      <label className="text-slate-400 text-xs mb-1 block">LP デザインテーマ</label>
+                      <select
+                        value={generateOptions.lp_theme}
+                        onChange={(e) =>
+                          setGenerateOptions((prev) => ({
+                            ...prev,
+                            lp_theme: e.target.value,
+                          }))
+                        }
+                        className="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded px-3 py-1.5 w-full"
+                      >
+                        <option value="auto">自動（AIが選択）</option>
+                        <option value="luxury_japanese">高級和風</option>
+                        <option value="modern_resort">モダンリゾート</option>
+                        <option value="natural_retreat">ナチュラルリトリート</option>
+                        <option value="urban_boutique">アーバンブティック</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

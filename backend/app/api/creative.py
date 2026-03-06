@@ -179,6 +179,7 @@ class CreativeGenerationRequestAuth(BaseModel):
     generate_images: bool = True
     generate_ad_copy: bool = True
     generate_ota_text: bool = False  # OTAテキスト（じゃらん、楽天トラベル向け）
+    lp_theme: str = "auto"          # LP デザインテーマ
 
 
 class SNSPostGenerationRequest(BaseModel):
@@ -331,7 +332,8 @@ async def generate_creative_assets_authenticated(
                     "website": hotel.website,
                 },
                 image_urls=valid_lp_image_urls,
-                hotel_detail=hotel.hotel_detail or {}
+                hotel_detail=hotel.hotel_detail or {},
+                theme=request.lp_theme
             )
         
         # 広告コピー生成

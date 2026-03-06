@@ -6,6 +6,62 @@ from typing import Dict, Optional, Tuple
 from app.models import MarketingPlan
 from app.core.language import get_language_instruction, get_language_name, is_japanese
 
+LP_THEMES: dict[str, dict | None] = {
+    "luxury_japanese": {
+        "label": "高級和風",
+        "palette": {
+            "main":       "#2c2416",   # 深い墨
+            "accent":     "#c8a97e",   # 金
+            "bg":         "#faf7f2",   # 和紙
+            "text":       "#1a1a1a",   # 濃い墨グレー
+            "subtext":    "#5a5148",   # 薄墨
+        },
+        "font_hint": "serif 系フォントを優先。見出しに明朝体ライクなスタイルを適用。",
+        "layout_hint": "余白を広めに。縦長の構成。和のモチーフ（細い罫線、水平区切り線）を活用。",
+        "hero_style": "全幅画像＋中央揃えテキスト。dark overlay を必ず使用。",
+    },
+    "modern_resort": {
+        "label": "モダンリゾート",
+        "palette": {
+            "main":       "#1a3a4a",   # ディープティール
+            "accent":     "#e67e22",   # サンセットオレンジ
+            "bg":         "#f8fffe",   # クリーンホワイト
+            "text":       "#1a2a35",   # ダークネイビー
+            "subtext":    "#607d8b",   # ブルーグレー
+        },
+        "font_hint": "モダン sans-serif。見出しは letter-spacing を広めに設定。",
+        "layout_hint": "フルブリードセクション。画像と白帯を交互に配置。大胆な余白。",
+        "hero_style": "画面高さ 100vh の全幅ヒーロー。テキストは左下寄せ推奨。",
+    },
+    "natural_retreat": {
+        "label": "ナチュラルリトリート",
+        "palette": {
+            "main":       "#3d5a3e",   # フォレストグリーン
+            "accent":     "#a0522d",   # テラコッタ
+            "bg":         "#f5f0e8",   # ナチュラルベージュ
+            "text":       "#2d2d2d",   # ソフトブラック
+            "subtext":    "#7a6a5a",   # アーシーグレー
+        },
+        "font_hint": "やわらかみのある丸ゴシック系。本文 line-height は 2.0 以上。",
+        "layout_hint": "角丸・有機的なシェイプ。セクション間に葉脈・自然モチーフのSVGを使っても良い。",
+        "hero_style": "画像を左右分割レイアウト（50% 画像 / 50% テキスト）またはオーバーラップ配置。",
+    },
+    "urban_boutique": {
+        "label": "アーバンブティック",
+        "palette": {
+            "main":       "#1c1c1e",   # チャコール
+            "accent":     "#d4af37",   # ゴールド
+            "bg":         "#ffffff",   # ピュアホワイト
+            "text":       "#1c1c1e",   # チャコール
+            "subtext":    "#6e6e73",   # ミディアムグレー
+        },
+        "font_hint": "幾何学的 sans-serif（Futura 系ライク）。大文字・letter-spacing 活用。",
+        "layout_hint": "グリッドベース。非対称レイアウト。ゴールドのアクセントラインを活用。",
+        "hero_style": "テキストオーバーレイはなし。ヒーロー画像の隣にテキストブロックを並置。",
+    },
+    "auto": None,  # LLM がコンセプトから自動選択
+}
+
 class CreativeGenerator:
     """クリエイティブアセット生成サービス"""
     
@@ -97,6 +153,35 @@ class CreativeGenerator:
         
         return processed_code
     
+    def _build_theme_section(self, theme_key: str, concept: str) -> str:
+        """テーマキーに応じたデザインテーマセクションを生成"""
+        theme = LP_THEMES.get(theme_key)
+
+        if theme is None:  # "auto" または未知のキー
+            return f"""
+【デザインテーマ】
+テーマは自動選択です。プランのコンセプト「{concept}」と施設の雰囲気から、
+最もふさわしいカラーパレット・フォントスタイル・レイアウトを独自に設計してください。
+ただし以下のルールは守ること：
+- 使用色は 5 色以内（メイン・アクセント・背景・テキスト・サブテキスト）
+- コントラスト比は WCAG AA 基準（4.5:1）以上
+"""
+
+        palette = theme["palette"]
+        return f"""
+【デザインテーマ: {theme['label']}】
+以下のパレットを厳守してください（この 5 色のみ使用）：
+- メインカラー:   {palette['main']}
+- アクセントカラー: {palette['accent']}
+- 背景色:         {palette['bg']}
+- テキスト色:     {palette['text']}
+- サブテキスト色: {palette['subtext']}
+
+フォント指針: {theme['font_hint']}
+レイアウト指針: {theme['layout_hint']}
+ヒーロー指針: {theme['hero_style']}
+"""
+
     async def generate_landing_page(
         self,
         marketing_plan: MarketingPlan,
@@ -104,7 +189,8 @@ class CreativeGenerator:
         cv_url: str = None,
         hotel_info: Dict = None,
         image_urls: Dict[str, str] = None,
-        hotel_detail: Dict = None
+        hotel_detail: Dict = None,
+        theme: str = "auto"
     ) -> Tuple[str, str]:
         """
         ランディングページのコードを生成
@@ -122,7 +208,7 @@ class CreativeGenerator:
         # ターゲット言語を取得
         target_language = self._get_target_language(marketing_plan)
         
-        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls, target_language, hotel_detail)
+        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls, target_language, hotel_detail, theme)
         
         # 言語に応じたシステムプロンプトを生成
         language_instruction = get_language_instruction(target_language)
@@ -818,7 +904,8 @@ The image should make viewers want to book immediately.""",
         hotel_info: Dict = None,
         image_urls: Dict[str, str] = None,
         target_language: str = "ja",
-        hotel_detail: Dict = None
+        hotel_detail: Dict = None,
+        theme: str = "auto"
     ) -> str:
         """LP生成プロンプトを作成"""
 
@@ -927,18 +1014,8 @@ The image should make viewers want to book immediately.""",
 - 予約ボタン（CTA）は「#」をhrefに設定してください
 """
         
-        # カラーパレット（宿泊施設向けの上品な配色）
-        color_palette = """
-【カラーパレット - この3色のみを使用してください】
-- メインカラー: #2c3e50（深いネイビー / 信頼感・高級感）
-- アクセントカラー: #c0392b（落ち着いた赤 / CTAボタン用）
-- 背景色: #fdfbf7（温かみのあるオフホワイト）
-- テキスト色: #333333（ダークグレー / 本文用）
-- サブテキスト色: #666666（グレー / 補足情報用）
-
-※ 上記以外の色は使用しないでください
-※ グラデーションを使う場合も上記の色の組み合わせのみ
-"""
+        # テーマに応じたデザイン指示
+        color_palette = self._build_theme_section(theme, plan.concept)
         
         return f"""
 以下のマーケティングプランに基づいて、宿泊施設のランディングページを作成してください。

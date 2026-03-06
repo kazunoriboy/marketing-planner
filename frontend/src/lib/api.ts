@@ -953,6 +953,7 @@ export interface CreativeGenerationRequest {
   generate_images?: boolean;
   generate_ad_copy?: boolean;
   generate_ota_text?: boolean;  // OTAテキスト（じゃらん、楽天トラベル向け）
+  lp_theme?: string;            // LP デザインテーマ
 }
 
 // オペレーション関連の型
