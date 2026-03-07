@@ -249,9 +249,9 @@ export default function ContentPage() {
     const asset = assets[0];
     if (!asset || !asset.lp_source_code) return;
     
-    // 既にプレビューURLがある場合はそれを使用
+    // 既にプレビューURLがある場合はそれを使用（キャッシュバスト付き）
     if (asset.lp_preview_url) {
-      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}`);
+      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}?t=${Date.now()}`);
       setShowPreviewModal(true);
       return;
     }
@@ -278,9 +278,9 @@ export default function ContentPage() {
     const asset = assets[0];
     if (!asset || !asset.lp_source_code) return;
     
-    // 既にプレビューURLがある場合はそれを使用
+    // 既にプレビューURLがある場合はそれを使用（キャッシュバスト付き）
     if (asset.lp_preview_url) {
-      window.open(`${API_BASE_URL}${asset.lp_preview_url}`, "_blank");
+      window.open(`${API_BASE_URL}${asset.lp_preview_url}?t=${Date.now()}`, "_blank");
       return;
     }
     
