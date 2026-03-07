@@ -463,11 +463,11 @@ export default function ContentPage() {
                         }
                         className="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded px-3 py-1.5 w-full"
                       >
-                        <option value="auto">自動（AIが選択）</option>
-                        <option value="luxury_japanese">高級和風</option>
-                        <option value="modern_resort">モダンリゾート</option>
-                        <option value="natural_retreat">ナチュラルリトリート</option>
-                        <option value="urban_boutique">アーバンブティック</option>
+                        <option value="auto">自動（AIがコンセプトから選択）</option>
+                        <option value="luxury_japanese">高級和風 — 墨・金・和紙色。明朝体＆広い余白の落ち着いた和のデザイン</option>
+                        <option value="modern_resort">モダンリゾート — 青緑×オレンジ。画面いっぱいのトップビジュアルと大胆な余白のリゾートらしいデザイン</option>
+                        <option value="natural_retreat">ナチュラルリトリート — グリーン×テラコッタ。丸みのある形と温かみのある自然派デザイン</option>
+                        <option value="urban_boutique">アーバンブティック — チャコール×ゴールド。グリッドと非対称レイアウトのスタイリッシュなデザイン</option>
                       </select>
                     </div>
                   )}
