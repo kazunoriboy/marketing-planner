@@ -15,8 +15,10 @@ from app.core.config import settings
 from app.models import MarketingPlan, CreativeAsset, AnalysisSession, FacilityAdminHotel, Hotel
 from app.schemas.creative import (
     CreativeGenerationRequest,
-    CreativeAssetResponse
+    CreativeAssetResponse,
+    LpAdjustRequest,
 )
+from datetime import datetime, timezone
 from app.services.creative_generator import CreativeGenerator
 from app.auth.dependencies import require_hotel_access, require_hotel_editor
 
@@ -507,6 +509,101 @@ async def save_lp_to_file(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LP保存エラー: {str(e)}")
+
+
+@router.post("/hotels/{hotel_id}/assets/{asset_id}/adjust-lp", response_model=CreativeAssetResponse)
+async def adjust_lp(
+    hotel_id: int,
+    asset_id: int,
+    request: LpAdjustRequest,
+    permission: FacilityAdminHotel = Depends(require_hotel_access),
+    session: Session = Depends(get_session)
+):
+    """
+    既存LPに自然言語で修正指示を出し、LLMが差分更新する（Issue #2）
+
+    - Stage 1: Gemini Flash で変更箇所を特定・最小コンテキスト抽出
+    - Stage 2: Gemini Pro で修正を適用
+    - 画像パスが壊れた場合は元のHTMLに戻す
+    - 修正履歴を lp_revision_history に追記（DB上限10件）
+    """
+    # 権限チェック
+    analysis_statement = select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    analysis_session = session.exec(analysis_statement).first()
+    if not analysis_session:
+        raise HTTPException(status_code=404, detail="分析セッションが見つかりません")
+
+    asset = session.get(CreativeAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="クリエイティブアセットが見つかりません")
+
+    marketing_plan = session.get(MarketingPlan, asset.marketing_plan_id)
+    if not marketing_plan or marketing_plan.analysis_session_id != analysis_session.id:
+        raise HTTPException(status_code=403, detail="このアセットへのアクセス権限がありません")
+
+    if not asset.lp_source_code:
+        raise HTTPException(status_code=400, detail="LPソースコードがありません。先にLPを生成してください。")
+
+    instruction = request.instruction.strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="修正指示を入力してください")
+
+    try:
+        generator = CreativeGenerator()
+
+        # Stage1: Flash（高速・安価）
+        flash_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        # Stage2: Pro（高精度）
+        pro_client = get_llm_client(model_name="gemini-3.1-pro-preview")
+
+        updated_html, summary = await generator.adjust_landing_page(
+            lp_source_code=asset.lp_source_code,
+            instruction=instruction,
+            lp_image_urls=asset.lp_image_urls or {},
+            flash_client=flash_client,
+            pro_client=pro_client,
+        )
+
+        if updated_html == asset.lp_source_code and summary.startswith("調整失敗"):
+            raise HTTPException(status_code=500, detail=f"LP調整に失敗しました: {summary}")
+
+        # 修正履歴を追記（上限10件）
+        history: list = list(asset.lp_revision_history or [])
+        history.append({
+            "revision_id": str(uuid.uuid4()),
+            "instruction": instruction,
+            "summary": summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "lp_source_code": asset.lp_source_code,  # 修正前スナップショット
+        })
+        if len(history) > 10:
+            history = history[-10:]
+
+        asset.lp_source_code = updated_html
+        asset.lp_revision_history = history
+        flag_modified(asset, "lp_revision_history")
+
+        # 静的ファイルも更新
+        image_urls = {
+            k: v for k, v in (asset.lp_image_urls or {}).items()
+            if isinstance(v, str) and v.startswith("/static/")
+        }
+        preview_url = generator.save_lp_to_file(
+            lp_source_code=updated_html,
+            hotel_id=hotel_id,
+            asset_id=asset_id,
+            image_urls=image_urls or None,
+        )
+        asset.lp_preview_url = preview_url
+
+        session.commit()
+        session.refresh(asset)
+        return asset
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LP調整エラー: {str(e)}")
 
 
 @router.delete("/hotels/{hotel_id}/assets/{asset_id}")
