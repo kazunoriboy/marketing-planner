@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload } from "lucide-react";
+import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload, Send, History } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
 import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse } from "@/lib/api";
 import Link from "next/link";
@@ -60,6 +60,11 @@ export default function ContentPage() {
     setToast(message);
     toastTimerRef.current = setTimeout(() => setToast(null), 2000);
   };
+
+  // LP調整関連のstate（Issue #2）
+  const [lpAdjustInstruction, setLpAdjustInstruction] = useState<string>("");
+  const [adjustingLp, setAdjustingLp] = useState(false);
+  const [lpAdjustError, setLpAdjustError] = useState<string>("");
 
   // SNS投稿ジェネレーター関連のstate
   const [snsPlatform, setSnsPlatform] = useState<string>("");
@@ -248,9 +253,9 @@ export default function ContentPage() {
     const asset = assets[0];
     if (!asset || !asset.lp_source_code) return;
     
-    // 既にプレビューURLがある場合はそれを使用
+    // 既にプレビューURLがある場合はそれを使用（キャッシュバスターを付与）
     if (asset.lp_preview_url) {
-      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}`);
+      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}?t=${Date.now()}`);
       setShowPreviewModal(true);
       return;
     }
@@ -296,6 +301,29 @@ export default function ContentPage() {
       alert("LPの保存に失敗しました");
     } finally {
       setSavingLp(false);
+    }
+  };
+
+  // LP調整ハンドラー（Issue #2）
+  const handleAdjustLp = async () => {
+    const asset = assets[0];
+    if (!asset || !lpAdjustInstruction.trim()) return;
+    setAdjustingLp(true);
+    setLpAdjustError("");
+    try {
+      const updatedAsset = await marketingApi.adjustLp(hotelId, asset.id, lpAdjustInstruction.trim());
+      setAssets([updatedAsset]);
+      // キャッシュバスターを付与してiframeを強制リロード
+      if (updatedAsset.lp_preview_url) {
+        setPreviewUrl(`${API_BASE_URL}${updatedAsset.lp_preview_url}?t=${Date.now()}`);
+      }
+      setLpAdjustInstruction("");
+      showToast("LPを調整しました");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "LP調整に失敗しました";
+      setLpAdjustError(msg);
+    } finally {
+      setAdjustingLp(false);
     }
   };
 
@@ -1384,9 +1412,9 @@ export default function ContentPage() {
       {/* LPプレビューモーダル - Portalで画面全体に表示 */}
       {showPreviewModal && previewUrl && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-6xl h-[90vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+          <div className="relative w-full max-w-7xl h-[92vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col">
             {/* ヘッダー */}
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-white/10">
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <Eye className="w-5 h-5 text-blue-400" />
                 <h3 className="text-lg font-semibold text-white">LPプレビュー</h3>
@@ -1409,14 +1437,92 @@ export default function ContentPage() {
                 </button>
               </div>
             </div>
-            
-            {/* iframe プレビュー */}
-            <div className="w-full h-[calc(100%-72px)] bg-white">
-              <iframe
-                src={previewUrl}
-                className="w-full h-full border-0"
-                title="LP Preview"
-              />
+
+            {/* メインコンテンツ: プレビュー + 調整パネル */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* iframe プレビュー */}
+              <div className="flex-1 bg-white">
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-full border-0"
+                  title="LP Preview"
+                />
+              </div>
+
+              {/* LP調整パネル（右サイドバー）*/}
+              <div className="w-80 flex flex-col bg-slate-800/60 border-l border-white/10 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Wand2 className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-semibold text-white">LP調整</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">修正したい内容を日本語で入力してください</p>
+                </div>
+
+                {/* 入力エリア */}
+                <div className="px-4 py-3 flex-shrink-0">
+                  <textarea
+                    value={lpAdjustInstruction}
+                    onChange={(e) => setLpAdjustInstruction(e.target.value)}
+                    placeholder="例：CTAボタンを紺色にしてください&#10;例：ヒーローセクションのキャッチコピーをもっと力強い表現に"
+                    rows={4}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 text-sm resize-none"
+                    disabled={adjustingLp}
+                  />
+                  {lpAdjustError && (
+                    <p className="text-red-400 text-xs mt-1">{lpAdjustError}</p>
+                  )}
+                  <button
+                    onClick={handleAdjustLp}
+                    disabled={adjustingLp || !lpAdjustInstruction.trim()}
+                    className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {adjustingLp ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        調整中...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        調整を適用する
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 修正履歴 */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 border-t border-white/10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <History className="w-4 h-4 text-slate-400" />
+                    <span className="text-xs font-semibold text-slate-300">修正履歴</span>
+                  </div>
+                  {(() => {
+                    const history = assets[0]?.lp_revision_history ?? [];
+                    const recent = [...history].reverse().slice(0, 5);
+                    if (recent.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-500 text-center py-4">
+                          まだ修正履歴はありません
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="space-y-2">
+                        {recent.map((entry) => (
+                          <div key={entry.revision_id} className="bg-white/5 rounded-lg p-2.5 border border-white/10">
+                            <p className="text-xs text-white font-medium truncate">{entry.summary}</p>
+                            <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{entry.instruction}</p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {new Date(entry.timestamp).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
         </div>,
