@@ -10,8 +10,9 @@ from pydantic import BaseModel
 from app.core.database import get_session
 from app.core.llm import get_llm_client
 from app.core.image_utils import save_facility_image, delete_facility_image_file
-from app.models import FacilityAdmin, FacilityAdminHotel, Hotel, FacilityAdminHotelRole
+from app.models import FacilityAdmin, FacilityAdminHotel, Hotel, FacilityAdminHotelRole, AnalysisSession
 from app.auth.dependencies import get_current_facility_admin
+from app.services.hotel_scrape_service import HotelScrapeService
 from sqlmodel import select
 
 router = APIRouter(prefix="/facility/hotels", tags=["Facility Hotels"])
@@ -827,6 +828,341 @@ async def update_hotel_assets(
     session.refresh(hotel)
     
     return hotel.hotel_assets
+
+
+# ============================================
+# 宿・周辺情報 API
+# ============================================
+
+class HotelDetailAttractionItem(BaseModel):
+    """周辺観光スポット1件"""
+    name: str
+    distance: str
+
+
+class HotelDetailSurrounding(BaseModel):
+    """周辺情報"""
+    description: str = ""
+    attractions: List[HotelDetailAttractionItem] = []
+
+
+class HotelStoryDetailResponse(BaseModel):
+    """宿・周辺情報レスポンス"""
+    story: str = ""
+    highlights: List[str] = []
+    surrounding: HotelDetailSurrounding = HotelDetailSurrounding()
+    access: str = ""
+
+
+class HotelDetailUpdateRequest(BaseModel):
+    """宿・周辺情報更新リクエスト"""
+    story: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    surrounding: Optional[HotelDetailSurrounding] = None
+    access: Optional[str] = None
+
+
+@router.get("/{hotel_id}/detail", response_model=HotelStoryDetailResponse)
+async def get_hotel_detail(
+    hotel_id: int,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session)
+):
+    """宿のストーリー・周辺情報を取得"""
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id
+        )
+    ).first()
+
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    detail = hotel.hotel_detail or {}
+    surrounding_data = detail.get("surrounding", {})
+    return HotelStoryDetailResponse(
+        story=detail.get("story", ""),
+        highlights=detail.get("highlights", []),
+        surrounding=HotelDetailSurrounding(
+            description=surrounding_data.get("description", ""),
+            attractions=[
+                HotelDetailAttractionItem(
+                    name=a.get("name", ""),
+                    distance=a.get("distance", ""),
+                )
+                for a in surrounding_data.get("attractions", [])
+            ],
+        ),
+        access=detail.get("access", ""),
+    )
+
+
+@router.put("/{hotel_id}/detail", response_model=HotelStoryDetailResponse)
+async def update_hotel_detail(
+    hotel_id: int,
+    request: HotelDetailUpdateRequest,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session)
+):
+    """宿のストーリー・周辺情報を更新"""
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id
+        )
+    ).first()
+
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+
+    if permission.role not in [FacilityAdminHotelRole.owner, FacilityAdminHotelRole.editor]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="編集権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    current = dict(hotel.hotel_detail or {})
+    if request.story is not None:
+        current["story"] = request.story
+    if request.highlights is not None:
+        current["highlights"] = request.highlights
+    if request.surrounding is not None:
+        current["surrounding"] = {
+            "description": request.surrounding.description,
+            "attractions": [
+                {"name": a.name, "distance": a.distance}
+                for a in request.surrounding.attractions
+            ],
+        }
+    if request.access is not None:
+        current["access"] = request.access
+
+    hotel.hotel_detail = current
+    hotel.updated_at = datetime.utcnow()
+    flag_modified(hotel, "hotel_detail")
+    session.add(hotel)
+    session.commit()
+    session.refresh(hotel)
+
+    detail = hotel.hotel_detail or {}
+    surrounding_data = detail.get("surrounding", {})
+    return HotelStoryDetailResponse(
+        story=detail.get("story", ""),
+        highlights=detail.get("highlights", []),
+        surrounding=HotelDetailSurrounding(
+            description=surrounding_data.get("description", ""),
+            attractions=[
+                HotelDetailAttractionItem(
+                    name=a.get("name", ""),
+                    distance=a.get("distance", ""),
+                )
+                for a in surrounding_data.get("attractions", [])
+            ],
+        ),
+        access=detail.get("access", ""),
+    )
+
+
+class HotelAutoFillResponse(BaseModel):
+    """公式サイト自動入力レスポンス"""
+    highlights: List[str] = []
+    surrounding: HotelDetailSurrounding = HotelDetailSurrounding()
+    access: str = ""
+
+
+@router.post("/{hotel_id}/detail/auto-fill", response_model=HotelAutoFillResponse)
+async def auto_fill_hotel_detail(
+    hotel_id: int,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session),
+):
+    """公式サイトURLからハイライト・周辺情報・アクセスを自動取得"""
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id,
+        )
+    ).first()
+
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    if not hotel.website:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="公式サイトのURLが設定されていません",
+        )
+
+    result = await HotelScrapeService.scrape_hotel_info(hotel.website, hotel.name)
+
+    surrounding_raw = result.get("surrounding", {})
+    attractions = [
+        HotelDetailAttractionItem(
+            name=a.get("name", ""),
+            distance=a.get("distance", ""),
+        )
+        for a in surrounding_raw.get("attractions", [])
+    ]
+
+    return HotelAutoFillResponse(
+        highlights=result.get("highlights", []),
+        surrounding=HotelDetailSurrounding(
+            description=surrounding_raw.get("description", ""),
+            attractions=attractions,
+        ),
+        access=result.get("access", ""),
+    )
+
+
+class SurroundingFromMarketResponse(BaseModel):
+    """市場データから生成した周辺情報"""
+    surrounding: HotelDetailSurrounding = HotelDetailSurrounding()
+
+
+@router.post("/{hotel_id}/detail/fill-surrounding-from-market", response_model=SurroundingFromMarketResponse)
+async def fill_surrounding_from_market(
+    hotel_id: int,
+    facility_admin: FacilityAdmin = Depends(get_current_facility_admin),
+    session: Session = Depends(get_session),
+):
+    """市場分析データ（地域トレンド）から周辺観光情報を生成"""
+    permission = session.exec(
+        select(FacilityAdminHotel).where(
+            FacilityAdminHotel.facility_admin_id == facility_admin.id,
+            FacilityAdminHotel.hotel_id == hotel_id,
+        )
+    ).first()
+
+    if permission is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="この施設へのアクセス権限がありません",
+        )
+
+    hotel = session.exec(select(Hotel).where(Hotel.id == hotel_id)).first()
+    if hotel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="施設が見つかりません",
+        )
+
+    analysis = session.exec(
+        select(AnalysisSession).where(AnalysisSession.hotel_id == hotel_id)
+    ).first()
+
+    if analysis is None or not analysis.regional_trends:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="市場分析データがありません。先にマーケティングAIの「市場を知る」で分析を実行してください。",
+        )
+
+    import json, re
+
+    system_prompt = (
+        "あなたは宿泊施設のマーケティング専門家です。"
+        "地域トレンドの分析文から、宿泊施設の公式ウェブサイトで使えるような"
+        "周辺エリアの説明文と観光スポット情報を抽出・整形してください。"
+    )
+
+    user_prompt = f"""以下は「{hotel.name}」が立地するエリアの地域トレンド分析です。
+
+---
+{analysis.regional_trends}
+---
+
+この分析文から、宿泊施設ウェブサイト向けに以下のJSON形式で周辺情報を整形してください：
+
+{{
+  "surrounding": {{
+    "description": "周辺エリアを宿泊客に伝える説明文（150〜300文字程度）",
+    "attractions": [
+      {{"name": "観光スポット名", "distance": "目安の距離・時間（例：車で20分）"}}
+    ]
+  }}
+}}
+
+ルール:
+- description は旅行者向けの魅力的な文章にする
+- attractions は分析文中で言及されている具体的なスポット名のみ抽出（最大8件）
+- 距離情報がない場合は空文字""にする
+- 純粋なJSONのみを返す（コードブロック不要）"""
+
+    try:
+        llm = get_llm_client(model_name="gemini-2.5-flash-lite")
+        raw = await llm.generate_structured_output(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_tokens=2048,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI生成エラーが発生しました",
+        )
+
+    try:
+        cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
+        result = json.loads(cleaned)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI応答のパースに失敗しました",
+        )
+
+    surrounding_raw = result.get("surrounding", {})
+    if not isinstance(surrounding_raw, dict):
+        surrounding_raw = {}
+
+    attractions_raw = surrounding_raw.get("attractions", [])
+    if not isinstance(attractions_raw, list):
+        attractions_raw = []
+
+    attractions = [
+        HotelDetailAttractionItem(
+            name=str(a.get("name", "")),
+            distance=str(a.get("distance", "")),
+        )
+        for a in attractions_raw
+        if isinstance(a, dict)
+    ]
+
+    return SurroundingFromMarketResponse(
+        surrounding=HotelDetailSurrounding(
+            description=str(surrounding_raw.get("description", "")),
+            attractions=attractions,
+        )
+    )
 
 
 @router.post("/{hotel_id}/assets/extract-from-image", response_model=dict)

@@ -15,6 +15,7 @@ import {
   Globe,
   BrainCircuit,
   ImageIcon,
+  BookOpen,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -163,6 +164,17 @@ export default function FacilityHotelsPage() {
                       >
                         <ImageIcon className="h-4 w-4 mr-1" />
                         画像を管理
+                      </Link>
+                    )}
+                    {/* 宿情報入力へのリンク */}
+                    {(hotel.role === "owner" || hotel.role === "editor") && (
+                      <Link
+                        href={`/facility/hotels/${hotel.id}/info`}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                        title="宿のストーリーや周辺情報を管理"
+                      >
+                        <BookOpen className="h-4 w-4 mr-1" />
+                        宿の情報
                       </Link>
                     )}
                     {/* マーケティングAIへのリンク */}

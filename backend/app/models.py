@@ -133,7 +133,22 @@ class Hotel(SQLModel, table=True):
     
     # 施設画像（最大10件）。各要素: key, url, description, type, order
     facility_images: list = Field(default_factory=list, sa_column=Column(JSON))
-    
+
+    # 宿のストーリー・周辺情報（JSON形式）
+    # {
+    #   "story":      "創業〇〇年。山の麓に佇む...",
+    #   "highlights": ["源泉かけ流し", "地産地消料理"],
+    #   "surrounding": {
+    #     "description": "南アルプスの麓に位置し...",
+    #     "attractions": [
+    #       {"name": "○○温泉郷", "distance": "徒歩5分"},
+    #       {"name": "△△神社",   "distance": "車10分"}
+    #     ]
+    #   },
+    #   "access": "新宿駅から特急で2時間。送迎あり（要予約）"
+    # }
+    hotel_detail: dict = Field(default_factory=dict, sa_column=Column(JSON))
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     

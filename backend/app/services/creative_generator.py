@@ -103,7 +103,8 @@ class CreativeGenerator:
         llm_client,
         cv_url: str = None,
         hotel_info: Dict = None,
-        image_urls: Dict[str, str] = None
+        image_urls: Dict[str, str] = None,
+        hotel_detail: Dict = None
     ) -> Tuple[str, str]:
         """
         ランディングページのコードを生成
@@ -121,7 +122,7 @@ class CreativeGenerator:
         # ターゲット言語を取得
         target_language = self._get_target_language(marketing_plan)
         
-        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls, target_language)
+        prompt = self._create_lp_generation_prompt(marketing_plan, cv_url, hotel_info, image_urls, target_language, hotel_detail)
         
         # 言語に応じたシステムプロンプトを生成
         language_instruction = get_language_instruction(target_language)
@@ -794,19 +795,20 @@ The image should make viewers want to book immediately.""",
         return ad_copy, prompt, warnings
     
     def _create_lp_generation_prompt(
-        self, 
-        plan: MarketingPlan, 
+        self,
+        plan: MarketingPlan,
         cv_url: str = None,
         hotel_info: Dict = None,
         image_urls: Dict[str, str] = None,
-        target_language: str = "ja"
+        target_language: str = "ja",
+        hotel_detail: Dict = None
     ) -> str:
         """LP生成プロンプトを作成"""
-        
+
         # 言語指示を作成
         language_instruction = get_language_instruction(target_language)
         language_name = get_language_name(target_language)
-        
+
         # ホテル情報セクション
         hotel_section = ""
         if hotel_info:
@@ -818,6 +820,39 @@ The image should make viewers want to book immediately.""",
 公式サイト: {hotel_info.get('website', '') or '掲載なし'}
 """
         
+        # 宿のストーリー・周辺情報セクション
+        hotel_detail_section = ""
+        if hotel_detail:
+            story = hotel_detail.get("story", "").strip()
+            highlights = hotel_detail.get("highlights", [])
+            surrounding = hotel_detail.get("surrounding", {})
+            surrounding_desc = surrounding.get("description", "").strip()
+            attractions = surrounding.get("attractions", [])
+            access = hotel_detail.get("access", "").strip()
+
+            parts = []
+            if story:
+                parts.append(f"【宿のストーリー・こだわり】\n{story}")
+            if highlights:
+                bullet = "\n".join(f"- {h}" for h in highlights)
+                parts.append(f"【宿のハイライト】\n{bullet}")
+            if surrounding_desc or attractions:
+                surr_lines = ["【周辺観光情報】"]
+                if surrounding_desc:
+                    surr_lines.append(f"エリア説明: {surrounding_desc}")
+                if attractions:
+                    surr_lines.append("観光スポット:")
+                    for a in attractions:
+                        name = a.get("name", "")
+                        distance = a.get("distance", "")
+                        surr_lines.append(f"  - {name}（{distance}）")
+                parts.append("\n".join(surr_lines))
+            if access:
+                parts.append(f"【アクセス】\n{access}")
+
+            if parts:
+                hotel_detail_section = "\n\n".join(parts) + "\n"
+
         # 画像スロットの役割ラベル（6スロット対応）
         _LP_SLOT_LABELS = {
             "hero":        "ヒーロー画像（施設外観・玄関などメインビジュアル）",
@@ -891,6 +926,7 @@ The image should make viewers want to book immediately.""",
         return f"""
 以下のマーケティングプランに基づいて、宿泊施設のランディングページを作成してください。
 {hotel_section}
+{hotel_detail_section}
 【プラン情報】
 プラン名: {plan.plan_name}
 コンセプト: {plan.concept}
