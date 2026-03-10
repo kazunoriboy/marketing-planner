@@ -70,6 +70,9 @@ export default function ContentPage() {
   const [previewingRevision, setPreviewingRevision] = useState<LpRevisionEntry | null>(null);
   const blobUrlRef = useRef<string | null>(null);
 
+  // HTML表示エリアに表示するリビジョン（nullなら最新）
+  const [displayedHtmlRevision, setDisplayedHtmlRevision] = useState<LpRevisionEntry | null>(null);
+
   // SNS投稿ジェネレーター関連のstate
   const [snsPlatform, setSnsPlatform] = useState<string>("");
   const [snsPostType, setSnsPostType] = useState<string>("");
@@ -714,20 +717,29 @@ export default function ContentPage() {
                           </div>
                           <div className="space-y-2">
                             {[...currentAsset.lp_revision_history].reverse().map((entry) => (
-                              <div key={entry.revision_id} className="flex items-start justify-between gap-2 bg-white/5 rounded-lg p-2.5 border border-white/10">
-                                <div className="flex-1 min-w-0">
+                              <div key={entry.revision_id} className={`bg-white/5 rounded-lg p-2.5 border transition-all ${displayedHtmlRevision?.revision_id === entry.revision_id ? "border-amber-500/50 bg-amber-500/10" : "border-white/10"}`}>
+                                <div className="mb-1.5">
                                   <p className="text-xs text-white font-medium truncate">{entry.summary}</p>
                                   <p className="text-xs text-slate-500 mt-0.5">
                                     {new Date(entry.timestamp).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                                   </p>
                                 </div>
-                                <button
-                                  onClick={() => handlePreviewRevision(entry)}
-                                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 transition-all text-xs"
-                                >
-                                  <Eye className="w-3 h-3" />
-                                  表示
-                                </button>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => handlePreviewRevision(entry)}
+                                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 transition-all text-xs"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    表示
+                                  </button>
+                                  <button
+                                    onClick={() => setDisplayedHtmlRevision(displayedHtmlRevision?.revision_id === entry.revision_id ? null : entry)}
+                                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded transition-all text-xs ${displayedHtmlRevision?.revision_id === entry.revision_id ? "bg-amber-500/30 text-amber-300" : "bg-white/10 text-slate-300 hover:bg-white/20"}`}
+                                  >
+                                    <FileCode className="w-3 h-3" />
+                                    HTML表示
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -736,9 +748,23 @@ export default function ContentPage() {
                     </div>
                   ) : null}
 
-                  <div className="bg-white/5 rounded-lg p-4 max-h-64 overflow-auto">
+                  {displayedHtmlRevision && (
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="flex items-center gap-1.5 text-xs text-amber-400">
+                        <History className="w-3.5 h-3.5" />
+                        過去バージョンのHTMLを表示中：{displayedHtmlRevision.summary}
+                      </span>
+                      <button
+                        onClick={() => setDisplayedHtmlRevision(null)}
+                        className="text-xs text-slate-400 hover:text-white transition-colors"
+                      >
+                        最新に戻す
+                      </button>
+                    </div>
+                  )}
+                  <div className={`bg-white/5 rounded-lg p-4 max-h-64 overflow-auto ${displayedHtmlRevision ? "border border-amber-500/30" : ""}`}>
                     <pre className="text-slate-300 text-xs whitespace-pre-wrap">
-                      {currentAsset.lp_source_code}
+                      {displayedHtmlRevision ? displayedHtmlRevision.lp_source_code : currentAsset.lp_source_code}
                     </pre>
                   </div>
                 </div>
