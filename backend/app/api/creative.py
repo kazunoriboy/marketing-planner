@@ -370,9 +370,22 @@ async def generate_creative_assets_authenticated(
             "ota_text_prompt": ota_text_prompt
         }
         
+        # LP初版エントリを生成
+        initial_revision_entry = None
+        if lp_code:
+            initial_revision_entry = {
+                "revision_id": str(uuid.uuid4()),
+                "instruction": "初版生成",
+                "summary": "初版",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "lp_source_code": lp_code,
+            }
+
         if existing_asset:
             if lp_code:
                 existing_asset.lp_source_code = lp_code
+                existing_asset.lp_revision_history = [initial_revision_entry]
+                flag_modified(existing_asset, "lp_revision_history")
             if lp_image_urls:
                 existing_asset.lp_image_urls = lp_image_urls
             if ad_image_urls:
@@ -391,13 +404,14 @@ async def generate_creative_assets_authenticated(
                 ad_image_urls=ad_image_urls,
                 ad_copy=ad_copy,
                 ota_text=ota_text,
-                generation_prompts=generation_prompts
+                generation_prompts=generation_prompts,
+                lp_revision_history=[initial_revision_entry] if initial_revision_entry else [],
             )
             session.add(creative_asset)
-        
+
         session.commit()
         session.refresh(creative_asset)
-        
+
         # LPが生成されている場合はファイルとして保存
         if lp_code and creative_asset.id:
             # LP用画像のみを抽出してプレビュー用に渡す
@@ -574,7 +588,7 @@ async def adjust_lp(
             "instruction": instruction,
             "summary": summary,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "lp_source_code": asset.lp_source_code,  # 修正前スナップショット
+            "lp_source_code": updated_html,  # 修正後スナップショット
         })
         if len(history) > 10:
             history = history[-10:]
@@ -742,10 +756,23 @@ async def generate_creative_assets(
             "ad_copy_warnings": ad_copy_warnings
         }
         
+        # LP初版エントリを生成
+        initial_revision_entry_2 = None
+        if lp_code:
+            initial_revision_entry_2 = {
+                "revision_id": str(uuid.uuid4()),
+                "instruction": "初版生成",
+                "summary": "初版",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "lp_source_code": lp_code,
+            }
+
         if existing_asset:
             # 既存アセットを更新
             if lp_code:
                 existing_asset.lp_source_code = lp_code
+                existing_asset.lp_revision_history = [initial_revision_entry_2]
+                flag_modified(existing_asset, "lp_revision_history")
             if image_prompts:
                 existing_asset.ad_image_urls = image_prompts
             if ad_copy:
@@ -759,7 +786,8 @@ async def generate_creative_assets(
                 lp_source_code=lp_code,
                 ad_image_urls=image_prompts,
                 ad_copy=ad_copy,
-                generation_prompts=generation_prompts
+                generation_prompts=generation_prompts,
+                lp_revision_history=[initial_revision_entry_2] if initial_revision_entry_2 else [],
             )
             session.add(creative_asset)
         

@@ -1615,7 +1615,9 @@ export default function ContentPage() {
                             className={`bg-white/5 rounded-lg p-2.5 border transition-all ${previewingRevision?.revision_id === entry.revision_id ? "border-amber-500/50 bg-amber-500/10" : "border-white/10"}`}
                           >
                             <p className="text-xs text-white font-medium truncate">{entry.summary}</p>
-                            <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{entry.instruction}</p>
+                            {entry.instruction !== "初版生成" && (
+                              <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{entry.instruction}</p>
+                            )}
                             <div className="flex items-center justify-between mt-1.5">
                               <p className="text-xs text-slate-500">
                                 {new Date(entry.timestamp).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
