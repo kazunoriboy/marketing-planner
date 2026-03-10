@@ -11,6 +11,20 @@ class CreativeGenerationRequest(BaseModel):
     generate_ad_copy: bool = True  # 広告コピーを生成するか
 
 
+class LpRevisionEntry(BaseModel):
+    """LP修正履歴エントリ"""
+    revision_id: str
+    instruction: str
+    summary: str
+    timestamp: str
+    lp_source_code: str
+
+
+class LpAdjustRequest(BaseModel):
+    """LP調整リクエスト"""
+    instruction: str
+
+
 class CreativeAssetResponse(BaseModel):
     """クリエイティブアセットレスポンス"""
     id: int
@@ -22,8 +36,9 @@ class CreativeAssetResponse(BaseModel):
     ad_copy: Dict
     ota_text: Dict = {}  # OTAテキスト（じゃらん、楽天トラベル向け）
     generation_prompts: Dict
+    lp_revision_history: List = []  # LP修正履歴（最大10件）
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
