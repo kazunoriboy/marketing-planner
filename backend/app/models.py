@@ -303,7 +303,10 @@ class CreativeAsset(SQLModel, table=True):
     
     # 生成メタデータ
     generation_prompts: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 使用したプロンプト
-    
+
+    # LP修正履歴（最大10件、古い順に削除）
+    lp_revision_history: list = Field(default_factory=list, sa_column=Column(JSON))
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     

@@ -2,7 +2,8 @@ import json
 import re
 import os
 import uuid
-from typing import Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
 from app.models import MarketingPlan
 from app.core.language import get_language_instruction, get_language_name, is_japanese
 
@@ -1454,3 +1455,172 @@ The image should make viewers want to book immediately.""",
                     "features": ["特別な体験", "くつろぎの空間", "おもてなし"]
                 }
             }
+
+    # -------------------------------------------------------------------------
+    # LP調整機能（Issue #2）
+    # -------------------------------------------------------------------------
+
+    def _validate_image_paths(self, html: str, lp_image_urls: Dict) -> bool:
+        """LP HTML内の画像パスが壊れていないか確認する"""
+        for path in lp_image_urls.values():
+            if not isinstance(path, str):
+                continue
+            filename = os.path.basename(path)
+            if filename and filename not in html:
+                print(f"[LP調整] 画像パス消失を検出: {filename}")
+                return False
+        return True
+
+    async def adjust_landing_page(
+        self,
+        lp_source_code: str,
+        instruction: str,
+        lp_image_urls: Dict,
+        flash_client,
+        pro_client,
+    ) -> Tuple[str, str]:
+        """
+        2段階LLMでLPを差分更新する
+
+        Stage 1 (Flash): 変更箇所を特定し、最小限のHTMLコンテキストを抽出
+        Stage 2 (Pro):   抽出コンテキストのみを渡して修正を適用
+
+        Args:
+            lp_source_code: 現在のLP HTML
+            instruction:    ユーザーの修正指示（自然言語）
+            lp_image_urls:  画像パス辞書（破壊チェック用）
+            flash_client:   Stage 1用 LLMClient（軽量モデル）
+            pro_client:     Stage 2用 LLMClient（高精度モデル）
+
+        Returns:
+            (updated_html, summary) のタプル
+            更新失敗時は元の lp_source_code をそのまま返す
+        """
+        # ------------------------------------------------------------------
+        # Stage 1: Flash で変更箇所を特定・コンテキスト抽出
+        # ------------------------------------------------------------------
+        stage1_system = (
+            "あなたはHTMLの差分修正を支援するアシスタントです。"
+            "ユーザーの指示に従い、修正が必要なHTML断片のみを抽出してください。"
+            "必ずJSON形式で出力してください。マークダウンのコードブロックは不要です。"
+        )
+        stage1_prompt = f"""以下のLP HTMLに対して、ユーザーの修正指示を分析してください。
+
+【修正指示】
+{instruction}
+
+【LP HTML（先頭3000文字）】
+{lp_source_code[:3000]}
+
+【LP HTML（末尾2000文字）】
+{lp_source_code[-2000:] if len(lp_source_code) > 5000 else ""}
+
+以下のJSON形式で回答してください:
+{{
+  "summary": "修正内容の要約（20文字以内）",
+  "target_description": "変更対象要素の説明",
+  "extracted_context": "変更対象のHTML断片（変更前の実際のHTMLコードを抜粋）",
+  "modification_instruction": "Stage2への詳細な修正指示"
+}}"""
+
+        try:
+            stage1_raw = await flash_client.generate_structured_output(
+                user_prompt=stage1_prompt,
+                system_prompt=stage1_system,
+                max_tokens=2048,
+            )
+        except Exception as e:
+            print(f"[LP調整] Stage1エラー: {e}")
+            return lp_source_code, "調整失敗"
+
+        # Stage1のJSON解析
+        try:
+            json_match = re.search(r'\{.*\}', stage1_raw, re.DOTALL)
+            stage1_result = json.loads(json_match.group() if json_match else stage1_raw)
+        except Exception:
+            stage1_result = {
+                "summary": instruction[:20],
+                "extracted_context": lp_source_code[:4000],
+                "modification_instruction": instruction,
+            }
+
+        summary = stage1_result.get("summary", instruction[:20])
+        if not isinstance(summary, str):
+            summary = instruction[:20]
+
+        extracted_context = stage1_result.get("extracted_context", lp_source_code[:4000])
+        if not isinstance(extracted_context, str):
+            extracted_context = lp_source_code[:4000]
+
+        modification_instruction = stage1_result.get("modification_instruction", instruction)
+        if not isinstance(modification_instruction, str):
+            modification_instruction = instruction
+
+        # ------------------------------------------------------------------
+        # Stage 2: Pro でHTML断片を修正
+        # ------------------------------------------------------------------
+        stage2_system = (
+            "あなたは宿泊施設LPのHTMLを修正する専門エンジニアです。"
+            "指示された箇所のみを修正し、修正後のHTML断片のみを出力してください。"
+            "画像のsrc属性は絶対に変更しないでください。"
+            "コードブロック（```）で囲まずに、純粋なHTMLのみを返してください。"
+        )
+        stage2_prompt = f"""以下のHTML断片を修正してください。
+
+【修正指示】
+{modification_instruction}
+
+【元のHTML断片】
+{extracted_context}
+
+修正後のHTML断片のみを出力してください（説明文不要）。"""
+
+        try:
+            modified_fragment = await pro_client.generate_text(
+                user_prompt=stage2_prompt,
+                system_prompt=stage2_system,
+                max_tokens=8000,
+            )
+        except Exception as e:
+            print(f"[LP調整] Stage2エラー: {e}")
+            return lp_source_code, "調整失敗"
+
+        # コードブロックを除去
+        modified_fragment = self._extract_code_from_response(modified_fragment)
+
+        # ------------------------------------------------------------------
+        # 元のHTMLへの反映（断片置換）
+        # ------------------------------------------------------------------
+        if extracted_context and extracted_context in lp_source_code:
+            updated_html = lp_source_code.replace(extracted_context, modified_fragment, 1)
+        else:
+            # 断片が見つからない場合はStage2を全HTML適用にフォールバック
+            print("[LP調整] 断片置換できなかったため全文修正にフォールバック")
+            fallback_prompt = f"""以下のLP HTML全体に対して修正を適用してください。
+
+【修正指示】
+{instruction}
+
+【LP HTML】
+{lp_source_code}
+
+修正後のHTML全体を出力してください。画像のsrc属性は変更しないでください。"""
+            try:
+                updated_html_raw = await pro_client.generate_text(
+                    user_prompt=fallback_prompt,
+                    system_prompt=stage2_system,
+                    max_tokens=16000,
+                )
+                updated_html = self._extract_code_from_response(updated_html_raw)
+            except Exception as e:
+                print(f"[LP調整] フォールバックエラー: {e}")
+                return lp_source_code, "調整失敗"
+
+        # ------------------------------------------------------------------
+        # 画像パス検証
+        # ------------------------------------------------------------------
+        if lp_image_urls and not self._validate_image_paths(updated_html, lp_image_urls):
+            print("[LP調整] 画像パスが破壊されたため修正前に戻します")
+            return lp_source_code, "調整失敗（画像パス破壊）"
+
+        return updated_html, summary

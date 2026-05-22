@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload } from "lucide-react";
+import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload, Send, History } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse } from "@/lib/api";
+import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse, LpRevisionEntry } from "@/lib/api";
 import Link from "next/link";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -60,6 +60,18 @@ export default function ContentPage() {
     setToast(message);
     toastTimerRef.current = setTimeout(() => setToast(null), 2000);
   };
+
+  // LP調整関連のstate（Issue #2）
+  const [lpAdjustInstruction, setLpAdjustInstruction] = useState<string>("");
+  const [adjustingLp, setAdjustingLp] = useState(false);
+  const [lpAdjustError, setLpAdjustError] = useState<string>("");
+
+  // 過去リビジョンのプレビュー関連
+  const [previewingRevision, setPreviewingRevision] = useState<LpRevisionEntry | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  // HTML表示エリアに表示するリビジョン（nullなら最新）
+  const [displayedHtmlRevision, setDisplayedHtmlRevision] = useState<LpRevisionEntry | null>(null);
 
   // SNS投稿ジェネレーター関連のstate
   const [snsPlatform, setSnsPlatform] = useState<string>("");
@@ -248,9 +260,9 @@ export default function ContentPage() {
     const asset = assets[0];
     if (!asset || !asset.lp_source_code) return;
     
-    // 既にプレビューURLがある場合はそれを使用
+    // 既にプレビューURLがある場合はそれを使用（キャッシュバスターを付与）
     if (asset.lp_preview_url) {
-      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}`);
+      setPreviewUrl(`${API_BASE_URL}${asset.lp_preview_url}?t=${Date.now()}`);
       setShowPreviewModal(true);
       return;
     }
@@ -297,6 +309,49 @@ export default function ContentPage() {
     } finally {
       setSavingLp(false);
     }
+  };
+
+  // LP調整ハンドラー（Issue #2）
+  const handleAdjustLp = async () => {
+    const asset = assets[0];
+    if (!asset || !lpAdjustInstruction.trim()) return;
+    setAdjustingLp(true);
+    setLpAdjustError("");
+    try {
+      const updatedAsset = await marketingApi.adjustLp(hotelId, asset.id, lpAdjustInstruction.trim());
+      setAssets([updatedAsset]);
+      // キャッシュバスターを付与してiframeを強制リロード
+      if (updatedAsset.lp_preview_url) {
+        setPreviewUrl(`${API_BASE_URL}${updatedAsset.lp_preview_url}?t=${Date.now()}`);
+      }
+      setLpAdjustInstruction("");
+      showToast("LPを調整しました");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "LP調整に失敗しました";
+      setLpAdjustError(msg);
+    } finally {
+      setAdjustingLp(false);
+    }
+  };
+
+  // 過去リビジョンをプレビューで表示
+  const handlePreviewRevision = (entry: LpRevisionEntry) => {
+    // 前のblobUrlを破棄
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+    }
+    const blob = new Blob([entry.lp_source_code], { type: "text/html" });
+    const blobUrl = URL.createObjectURL(blob);
+    blobUrlRef.current = blobUrl;
+    setPreviewingRevision(entry);
+    setPreviewUrl(blobUrl);
+    setShowPreviewModal(true);
+  };
+
+  // 現在のLPをプレビュー（リビジョン表示モードを解除）
+  const handlePreviewCurrent = async () => {
+    setPreviewingRevision(null);
+    await handleOpenPreview();
   };
 
   const currentAsset = assets[0];
@@ -548,114 +603,168 @@ export default function ContentPage() {
                     </div>
                   </div>
                   
-                  {/* LP用画像セクション */}
-                  {currentAsset.lp_image_urls && Object.keys(currentAsset.lp_image_urls).length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm text-slate-400 mb-3">LP用画像（クリックで差し替え可能）</p>
-                      <div className="grid grid-cols-3 gap-3">
-                        {Object.entries(currentAsset.lp_image_urls).map(([key, value]) => {
-                          const imageValue = value as Record<string, unknown> | string | null;
-                          const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
-                          const isValidType = ["hero", "feature", "feature1", "feature2", "feature3", "surrounding", "ambiance"].includes(key);
-                          const isUploading = uploadingImage === key;
-                          
-                          return (
-                            <div key={key} className="relative group">
-                              <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-                                {key}
-                                {isValidType && (
-                                  <span className="text-slate-600">（差し替え可）</span>
-                                )}
-                              </p>
-                              
-                              {/* 隠しファイル入力 */}
-                              {isValidType && (
-                                <input
-                                  type="file"
-                                  ref={(el) => { fileInputRefs.current[key] = el; }}
-                                  accept="image/jpeg,image/png,image/webp"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      // ファイルを選択したらプレビューを表示（即座にアップロードしない）
-                                      const previewUrl = URL.createObjectURL(file);
-                                      setPendingImageUpload({
-                                        imageType: key,
-                                        file,
-                                        previewUrl,
-                                      });
-                                    }
-                                    e.target.value = "";
-                                  }}
-                                />
-                              )}
-                              
-                              {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
-                                <div 
-                                  className={`relative aspect-video rounded-lg overflow-hidden bg-slate-800 ${isValidType && !isUploading ? 'cursor-pointer' : ''}`}
-                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
-                                >
-                                  <img
-                                    src={`${API_BASE_URL}${imageValue}`}
-                                    alt={key}
-                                    className="w-full h-full object-cover"
-                                  />
-                                  {/* アップロードオーバーレイ */}
-                                  {isValidType && !isUploading && (
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                      <div className="text-center">
-                                        <Upload className="w-6 h-6 text-white mx-auto mb-1" />
-                                        <span className="text-white text-xs">画像を差し替え</span>
-                                      </div>
-                                    </div>
+                  {/* LP用画像 + 修正履歴（横並び） */}
+                  {(currentAsset.lp_image_urls && Object.keys(currentAsset.lp_image_urls).length > 0) || (currentAsset.lp_revision_history && currentAsset.lp_revision_history.length > 0) ? (
+                    <div className="flex gap-4 mb-4 items-start">
+                      {/* LP用画像セクション */}
+                      {currentAsset.lp_image_urls && Object.keys(currentAsset.lp_image_urls).length > 0 && (
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-400 mb-3">LP用画像（クリックで差し替え可能）</p>
+                          <div className="grid grid-cols-3 gap-3">
+                            {Object.entries(currentAsset.lp_image_urls).map(([key, value]) => {
+                              const imageValue = value as Record<string, unknown> | string | null;
+                              const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
+                              const isValidType = ["hero", "feature", "feature1", "feature2", "feature3", "surrounding", "ambiance"].includes(key);
+                              const isUploading = uploadingImage === key;
+
+                              return (
+                                <div key={key} className="relative group">
+                                  <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                                    {key}
+                                    {isValidType && (
+                                      <span className="text-slate-600">（差し替え可）</span>
+                                    )}
+                                  </p>
+
+                                  {/* 隠しファイル入力 */}
+                                  {isValidType && (
+                                    <input
+                                      type="file"
+                                      ref={(el) => { fileInputRefs.current[key] = el; }}
+                                      accept="image/jpeg,image/png,image/webp"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          const previewUrl = URL.createObjectURL(file);
+                                          setPendingImageUpload({
+                                            imageType: key,
+                                            file,
+                                            previewUrl,
+                                          });
+                                        }
+                                        e.target.value = "";
+                                      }}
+                                    />
                                   )}
-                                  {/* アップロード中 */}
-                                  {isUploading && (
-                                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+
+                                  {typeof imageValue === "string" && imageValue.startsWith("/static/") ? (
+                                    <div
+                                      className={`relative aspect-video rounded-lg overflow-hidden bg-slate-800 ${isValidType && !isUploading ? 'cursor-pointer' : ''}`}
+                                      onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                    >
+                                      <img
+                                        src={`${API_BASE_URL}${imageValue}`}
+                                        alt={key}
+                                        className="w-full h-full object-cover"
+                                      />
+                                      {isValidType && !isUploading && (
+                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <div className="text-center">
+                                            <Upload className="w-6 h-6 text-white mx-auto mb-1" />
+                                            <span className="text-white text-xs">画像を差し替え</span>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {isUploading && (
+                                        <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                                          <Loader2 className="w-6 h-6 text-white animate-spin" />
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
-                              ) : isError ? (
-                                <div 
-                                  className={`aspect-video rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-red-500/20' : ''}`}
-                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
-                                >
-                                  {isUploading ? (
-                                    <Loader2 className="w-6 h-6 text-red-400 animate-spin" />
+                                  ) : isError ? (
+                                    <div
+                                      className={`aspect-video rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-red-500/20' : ''}`}
+                                      onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                    >
+                                      {isUploading ? (
+                                        <Loader2 className="w-6 h-6 text-red-400 animate-spin" />
+                                      ) : (
+                                        <div className="text-center">
+                                          <Upload className="w-5 h-5 text-red-400 mx-auto mb-1" />
+                                          <span className="text-red-400 text-xs">画像をアップロード</span>
+                                        </div>
+                                      )}
+                                    </div>
                                   ) : (
-                                    <div className="text-center">
-                                      <Upload className="w-5 h-5 text-red-400 mx-auto mb-1" />
-                                      <span className="text-red-400 text-xs">画像をアップロード</span>
+                                    <div
+                                      className={`aspect-video rounded-lg bg-slate-700 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-slate-600' : ''}`}
+                                      onClick={() => isValidType && !isUploading && triggerFileInput(key)}
+                                    >
+                                      {isUploading ? (
+                                        <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+                                      ) : (
+                                        <div className="text-center">
+                                          <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                                          <span className="text-slate-500 text-xs">画像をアップロード</span>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
-                              ) : (
-                                <div 
-                                  className={`aspect-video rounded-lg bg-slate-700 flex items-center justify-center ${isValidType && !isUploading ? 'cursor-pointer hover:bg-slate-600' : ''}`}
-                                  onClick={() => isValidType && !isUploading && triggerFileInput(key)}
-                                >
-                                  {isUploading ? (
-                                    <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
-                                  ) : (
-                                    <div className="text-center">
-                                      <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                                      <span className="text-slate-500 text-xs">画像をアップロード</span>
-                                    </div>
-                                  )}
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 修正履歴（右側） */}
+                      {currentAsset.lp_revision_history && currentAsset.lp_revision_history.length > 0 && (
+                        <div className="w-64 flex-shrink-0">
+                          <div className="flex items-center gap-2 mb-3">
+                            <History className="w-4 h-4 text-slate-400" />
+                            <span className="text-sm text-slate-400">修正履歴</span>
+                          </div>
+                          <div className="space-y-2">
+                            {[...currentAsset.lp_revision_history].reverse().map((entry) => (
+                              <div key={entry.revision_id} className={`bg-white/5 rounded-lg p-2.5 border transition-all ${displayedHtmlRevision?.revision_id === entry.revision_id ? "border-amber-500/50 bg-amber-500/10" : "border-white/10"}`}>
+                                <div className="mb-1.5">
+                                  <p className="text-xs text-white font-medium truncate">{entry.summary}</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    {new Date(entry.timestamp).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                  </p>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => handlePreviewRevision(entry)}
+                                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 transition-all text-xs"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    表示
+                                  </button>
+                                  <button
+                                    onClick={() => setDisplayedHtmlRevision(displayedHtmlRevision?.revision_id === entry.revision_id ? null : entry)}
+                                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded transition-all text-xs ${displayedHtmlRevision?.revision_id === entry.revision_id ? "bg-amber-500/30 text-amber-300" : "bg-white/10 text-slate-300 hover:bg-white/20"}`}
+                                  >
+                                    <FileCode className="w-3 h-3" />
+                                    HTML表示
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {displayedHtmlRevision && (
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="flex items-center gap-1.5 text-xs text-amber-400">
+                        <History className="w-3.5 h-3.5" />
+                        過去バージョンのHTMLを表示中：{displayedHtmlRevision.summary}
+                      </span>
+                      <button
+                        onClick={() => setDisplayedHtmlRevision(null)}
+                        className="text-xs text-slate-400 hover:text-white transition-colors"
+                      >
+                        最新に戻す
+                      </button>
                     </div>
                   )}
-                  
-                  <div className="bg-white/5 rounded-lg p-4 max-h-64 overflow-auto">
+                  <div className={`bg-white/5 rounded-lg p-4 max-h-64 overflow-auto ${displayedHtmlRevision ? "border border-amber-500/30" : ""}`}>
                     <pre className="text-slate-300 text-xs whitespace-pre-wrap">
-                      {currentAsset.lp_source_code}
+                      {displayedHtmlRevision ? displayedHtmlRevision.lp_source_code : currentAsset.lp_source_code}
                     </pre>
                   </div>
                 </div>
@@ -1384,39 +1493,154 @@ export default function ContentPage() {
       {/* LPプレビューモーダル - Portalで画面全体に表示 */}
       {showPreviewModal && previewUrl && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-6xl h-[90vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+          <div className="relative w-full max-w-7xl h-[92vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col">
             {/* ヘッダー */}
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-white/10">
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <Eye className="w-5 h-5 text-blue-400" />
                 <h3 className="text-lg font-semibold text-white">LPプレビュー</h3>
+                {previewingRevision && (
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/20 text-amber-400 rounded-lg text-xs font-medium">
+                    <History className="w-3.5 h-3.5" />
+                    過去バージョン表示中
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3">
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-all text-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  新しいタブで開く
-                </a>
+                {previewingRevision && (
+                  <button
+                    onClick={handlePreviewCurrent}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-all text-sm"
+                  >
+                    <Eye className="w-4 h-4" />
+                    最新版に戻る
+                  </button>
+                )}
+                {!previewingRevision && (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-all text-sm"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    新しいタブで開く
+                  </a>
+                )}
                 <button
-                  onClick={() => setShowPreviewModal(false)}
+                  onClick={() => { setShowPreviewModal(false); setPreviewingRevision(null); }}
                   className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
-            
-            {/* iframe プレビュー */}
-            <div className="w-full h-[calc(100%-72px)] bg-white">
-              <iframe
-                src={previewUrl}
-                className="w-full h-full border-0"
-                title="LP Preview"
-              />
+
+            {/* メインコンテンツ: プレビュー + 調整パネル */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* iframe プレビュー */}
+              <div className="flex-1 bg-white">
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-full border-0"
+                  title="LP Preview"
+                />
+              </div>
+
+              {/* LP調整パネル（右サイドバー）*/}
+              <div className="w-80 flex flex-col bg-slate-800/60 border-l border-white/10 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Wand2 className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-semibold text-white">LP調整</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {previewingRevision ? "最新版に戻ってから調整できます" : "修正したい内容を日本語で入力してください"}
+                  </p>
+                </div>
+
+                {/* 入力エリア */}
+                <div className="px-4 py-3 flex-shrink-0">
+                  <textarea
+                    value={lpAdjustInstruction}
+                    onChange={(e) => setLpAdjustInstruction(e.target.value)}
+                    placeholder="例：CTAボタンを紺色にしてください&#10;例：ヒーローセクションのキャッチコピーをもっと力強い表現に"
+                    rows={4}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 text-sm resize-none"
+                    disabled={adjustingLp || !!previewingRevision}
+                  />
+                  {lpAdjustError && (
+                    <p className="text-red-400 text-xs mt-1">{lpAdjustError}</p>
+                  )}
+                  <button
+                    onClick={handleAdjustLp}
+                    disabled={adjustingLp || !lpAdjustInstruction.trim() || !!previewingRevision}
+                    className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition-all font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {adjustingLp ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        調整中...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        調整を適用する
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 修正履歴 */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 border-t border-white/10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <History className="w-4 h-4 text-slate-400" />
+                    <span className="text-xs font-semibold text-slate-300">修正履歴</span>
+                  </div>
+                  {(() => {
+                    const history = assets[0]?.lp_revision_history ?? [];
+                    const recent = [...history].reverse().slice(0, 5);
+                    if (recent.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-500 text-center py-4">
+                          まだ修正履歴はありません
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="space-y-2">
+                        {recent.map((entry) => (
+                          <div
+                            key={entry.revision_id}
+                            className={`bg-white/5 rounded-lg p-2.5 border transition-all ${previewingRevision?.revision_id === entry.revision_id ? "border-amber-500/50 bg-amber-500/10" : "border-white/10"}`}
+                          >
+                            <p className="text-xs text-white font-medium truncate">{entry.summary}</p>
+                            {entry.instruction !== "初版生成" && (
+                              <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{entry.instruction}</p>
+                            )}
+                            <div className="flex items-center justify-between mt-1.5">
+                              <p className="text-xs text-slate-500">
+                                {new Date(entry.timestamp).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                              {previewingRevision?.revision_id === entry.revision_id ? (
+                                <span className="text-xs text-amber-400 font-medium">表示中</span>
+                              ) : (
+                                <button
+                                  onClick={() => handlePreviewRevision(entry)}
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 transition-all text-xs"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  表示
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
         </div>,

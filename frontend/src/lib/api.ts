@@ -892,6 +892,14 @@ export interface MarketingPlan {
   updated_at: string;
 }
 
+export interface LpRevisionEntry {
+  revision_id: string;
+  instruction: string;
+  summary: string;
+  timestamp: string;
+  lp_source_code: string;
+}
+
 export interface CreativeAsset {
   id: number;
   marketing_plan_id: number;
@@ -902,6 +910,7 @@ export interface CreativeAsset {
   ad_copy: AdCopyContent;
   ota_text: OTATextContent;
   generation_prompts: Record<string, unknown>;
+  lp_revision_history: LpRevisionEntry[];
   created_at: string;
   updated_at: string;
 }
@@ -1686,6 +1695,24 @@ export const marketingApi = {
     }
 
     return response.json();
+  },
+
+  /**
+   * LP調整: 自然言語の修正指示をLLMに渡してHTMLを差分更新する（Issue #2）
+   */
+  async adjustLp(
+    hotelId: number,
+    assetId: number,
+    instruction: string
+  ): Promise<CreativeAsset> {
+    return apiRequest<CreativeAsset>(
+      `/api/creative/hotels/${hotelId}/assets/${assetId}/adjust-lp`,
+      {
+        method: "POST",
+        body: JSON.stringify({ instruction }),
+      },
+      "facility"
+    );
   },
 
   // ============================================
