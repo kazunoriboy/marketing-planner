@@ -272,7 +272,7 @@ docker compose exec backend python -m pytest tests/ -v
 
 ## 🚢 本番デプロイ
 
-自動デプロイスクリプトはありません。EC2 への手動デプロイ手順はリポジトリ直下の [DEPLOY.md](../DEPLOY.md) を参照してください（`docker-compose.prod.yml` を使用）。
+自動デプロイスクリプトは [`scripts/deploy.sh`](../scripts/deploy.sh) を使用します。EC2 への手動デプロイ手順の詳細は [DEPLOY.md](../DEPLOY.md) を参照してください（`docker-compose.prod.yml` を使用）。
 
 ## 📝 ライセンス
 

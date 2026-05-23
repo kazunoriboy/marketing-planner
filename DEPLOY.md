@@ -4,9 +4,67 @@
 
 **デプロイ先ドメイン**: `ai-marketing.poseidon-inc.com`
 
-> **Note**: 自動デプロイスクリプト（`deploy.sh` 等）はリポジトリに含まれていません。本ドキュメントの手順と `docker-compose.prod.yml` を使った手動デプロイです。
+> **Note**: デプロイは [`scripts/deploy.sh`](scripts/deploy.sh) で自動化できます。初回セットアップ後の再デプロイは `./scripts/deploy.sh deploy` が基本です。
 
-## 📋 前提条件
+## 🚀 デプロイスクリプト（推奨）
+
+### EC2 に環境変数ファイルが既にある場合
+
+`backend/.env`、`.env.db`、`frontend/.env.local` は **docker compose が直接読み込み**ます。deploy スクリプトはこれらを **上書きしません**。
+
+```bash
+cd ~/marketing-planner
+
+# 既存ファイルが使えるか確認
+./scripts/deploy.sh check-env
+
+# そのまま再デプロイ
+./scripts/deploy.sh deploy
+```
+
+`scripts/deploy.env` は **任意**です。未作成でも deploy 可能で、ドメインは `backend/.env` の `CORS_ORIGINS` から自動検出されます。
+
+### 初回セットアップ / deploy.env を使う場合
+
+```bash
+# 1. 設定ファイルを作成（任意）
+cp scripts/deploy.env.example scripts/deploy.env
+nano scripts/deploy.env   # DOMAIN, CERTBOT_EMAIL など
+
+# 2. EC2 初回のみ: ホストセットアップ
+./scripts/deploy.sh setup-host
+
+# 3. 環境変数ファイルが無い場合のみ
+./scripts/deploy.sh setup-env
+
+# 4. 初回のみ: SSL 証明書取得
+./scripts/deploy.sh setup-ssl
+
+# 5. 初回のみ: 管理者作成
+./scripts/deploy.sh seed-admin
+
+# 6. 証明書自動更新 cron 登録（任意）
+./scripts/deploy.sh install-ssl-cron
+
+# 通常の再デプロイ
+./scripts/deploy.sh deploy
+```
+
+| コマンド | 説明 |
+|---------|------|
+| `check-env` | 既存の `.env` ファイルを確認（上書きしない） |
+| `deploy` | git pull → build → up → migrate（通常利用） |
+| `setup-env` | **不足ファイルのみ** example から作成（既存は保持） |
+| `setup-host` | Docker / Compose / certbot を EC2 にインストール |
+| `setup-ssl` | 初回 Let's Encrypt 取得と HTTPS 有効化 |
+| `renew-ssl` | 証明書更新 + nginx 再起動 |
+| `install-ssl-cron` | `renew-ssl` の cron 登録 |
+| `migrate` | DB マイグレーションのみ |
+| `seed-admin` | 初期管理者作成 |
+
+詳細は `./scripts/deploy.sh help` を参照してください。
+
+---
 
 - AWS アカウント
 - EC2 への SSH アクセス
@@ -331,14 +389,17 @@ docker compose -f docker-compose.prod.yml logs -f
 
 ## 🔄 SSL証明書の自動更新
 
-Let's Encrypt の証明書は90日で期限切れになります。自動更新を設定しましょう。
+Let's Encrypt の証明書は90日で期限切れになります。
 
 ```bash
-# crontab を編集
-crontab -e
+# cron 登録（推奨）
+./scripts/deploy.sh install-ssl-cron
+
+# 手動更新
+./scripts/deploy.sh renew-ssl
 ```
 
-以下を追加:
+手動で crontab を編集する場合:
 
 ```cron
 # 毎月1日と15日の午前3時に証明書を更新
@@ -346,6 +407,13 @@ crontab -e
 ```
 
 ## 🔄 更新・再デプロイ
+
+```bash
+cd ~/marketing-planner
+./scripts/deploy.sh deploy
+```
+
+手動で実行する場合:
 
 ```bash
 cd ~/marketing-planner
@@ -358,6 +426,9 @@ docker compose -f docker-compose.prod.yml build
 
 # コンテナを再起動
 docker compose -f docker-compose.prod.yml up -d
+
+# マイグレーション
+docker compose -f docker-compose.prod.yml exec backend python -m app.scripts.migrate upgrade
 
 # 古いイメージを削除
 docker image prune -f

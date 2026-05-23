@@ -198,7 +198,7 @@ Google Gemini API を用途別に使い分けています（`backend/app/core/ll
 - **[クイックスタート](backend/docs/QUICKSTART.md)** - 5分で始める顧客分析機能
 - **[機能仕様書](backend/docs/CUSTOMER_ANALYSIS_SPEC.md)** - 顧客分析機能の詳細仕様
 - **[実装ガイド](backend/docs/IMPLEMENTATION_GUIDE.md)** - 技術的な実装詳細
-- **[EC2 デプロイ手順](DEPLOY.md)** - 本番環境への手動デプロイ手順
+- **[EC2 デプロイ手順](DEPLOY.md)** - 本番環境デプロイ（[`scripts/deploy.sh`](scripts/deploy.sh) 推奨）
 
 ## 🧪 テスト
 

@@ -93,7 +93,7 @@
 - [pandas公式ドキュメント](https://pandas.pydata.org/docs/)
 
 ### プロジェクト内
-- [本番デプロイ手順](../../DEPLOY.md) - EC2 への手動デプロイ（自動スクリプトなし）
+- [本番デプロイ手順](../../DEPLOY.md) - EC2 デプロイ（[`scripts/deploy.sh`](../../scripts/deploy.sh)）
 - [テストコード](../tests/) - テスト実装とサンプルコード
 - [サービス実装](../app/services/) - コアロジック
 - [APIルーター](../app/api/) - エンドポイント実装
