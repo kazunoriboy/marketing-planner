@@ -25,6 +25,31 @@ from app.auth.dependencies import require_hotel_access, require_hotel_editor
 router = APIRouter(prefix="/api/creative", tags=["creative"])
 
 AD_IMAGE_SLOTS = ("display_wide", "display_square", "display_vertical")
+
+FACILITY_IMAGES_REQUIRED_MESSAGE = (
+    "広告画像生成には施設画像が必要です。施設設定で画像を登録してください。"
+)
+STORAGE_FETCH_FAILED_MESSAGE = (
+    "施設画像の取得に失敗しました。ストレージ接続を確認してください。"
+)
+
+
+def _ad_images_facility_images_required_error() -> Dict[str, dict]:
+    """施設画像がない場合の広告画像スロット用エラー辞書（種別間の部分成功用）。"""
+    return {
+        slot: {"error": "facility_images_required", "message": FACILITY_IMAGES_REQUIRED_MESSAGE}
+        for slot in AD_IMAGE_SLOTS
+    }
+
+
+def _ad_images_storage_fetch_failed_error() -> Dict[str, dict]:
+    """S3取得失敗時の広告画像スロット用エラー辞書（種別間の部分成功用）。"""
+    return {
+        slot: {"error": "storage_fetch_failed", "message": STORAGE_FETCH_FAILED_MESSAGE}
+        for slot in AD_IMAGE_SLOTS
+    }
+
+
 AD_IMAGE_TYPE_PREFERENCES = {
     "display_wide": ("exterior", "lobby", "interior", "sightseeing", "other"),
     "display_square": ("room", "bath", "cuisine", "restaurant", "interior", "other"),
@@ -285,33 +310,30 @@ async def generate_creative_assets_authenticated(
         if request.generate_images:
             selected_refs, selection_log = _select_ad_reference_images(hotel)
             if not selected_refs:
-                raise HTTPException(
-                    status_code=400,
-                    detail="広告画像生成には施設画像が必要です。施設設定で画像を登録してください。"
-                )
-            reference_payload = {}
-            try:
-                for slot, ref in selected_refs.items():
-                    image_data, mime_type = _fetch_s3_image_bytes(hotel_id, ref.get("url", ""))
-                    reference_payload[slot] = {
-                        "data": image_data,
-                        "mime_type": mime_type,
-                        "url": ref.get("url", ""),
-                    }
-            except Exception:
-                raise HTTPException(
-                    status_code=503,
-                    detail="施設画像の取得に失敗しました。ストレージ接続を確認してください。"
-                )
-
-            ad_image_urls, generation_log = await generator.generate_ad_images_with_references(
-                marketing_plan=marketing_plan,
-                llm_client=llm_client_image,
-                hotel_id=hotel_id,
-                reference_images=reference_payload,
-                hotel_info={"name": hotel.name, "address": hotel.address or ""},
-            )
-            ad_image_gen_prompt = f"{selection_log}\n\n{generation_log}"
+                ad_image_urls = _ad_images_facility_images_required_error()
+                ad_image_gen_prompt = selection_log
+            else:
+                reference_payload = {}
+                try:
+                    for slot, ref in selected_refs.items():
+                        image_data, mime_type = _fetch_s3_image_bytes(hotel_id, ref.get("url", ""))
+                        reference_payload[slot] = {
+                            "data": image_data,
+                            "mime_type": mime_type,
+                            "url": ref.get("url", ""),
+                        }
+                except Exception:
+                    ad_image_urls = _ad_images_storage_fetch_failed_error()
+                    ad_image_gen_prompt = selection_log
+                else:
+                    ad_image_urls, generation_log = await generator.generate_ad_images_with_references(
+                        marketing_plan=marketing_plan,
+                        llm_client=llm_client_image,
+                        hotel_id=hotel_id,
+                        reference_images=reference_payload,
+                        hotel_info={"name": hotel.name, "address": hotel.address or ""},
+                    )
+                    ad_image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
         # LP生成（LP用画像URLとホテル情報を渡す）
         if request.generate_lp:
@@ -431,7 +453,9 @@ async def generate_creative_assets_authenticated(
             session.refresh(creative_asset)
         
         return creative_asset
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"クリエイティブ生成エラー: {str(e)}")
 
@@ -699,7 +723,7 @@ async def generate_creative_assets(
                 llm_client=llm_client_lp
             )
         
-        # 画像プロンプト生成
+        # 画像プロンプト生成（施設画像欠如・S3失敗時はスロット単位のエラーで他コンテンツを続行）
         if request.generate_images:
             if not hotel:
                 raise HTTPException(
@@ -708,33 +732,30 @@ async def generate_creative_assets(
                 )
             selected_refs, selection_log = _select_ad_reference_images(hotel)
             if not selected_refs:
-                raise HTTPException(
-                    status_code=400,
-                    detail="広告画像生成には施設画像が必要です。施設設定で画像を登録してください。"
-                )
-            reference_payload = {}
-            try:
-                for slot, ref in selected_refs.items():
-                    image_data, mime_type = _fetch_s3_image_bytes(hotel.id, ref.get("url", ""))
-                    reference_payload[slot] = {
-                        "data": image_data,
-                        "mime_type": mime_type,
-                        "url": ref.get("url", ""),
-                    }
-            except Exception:
-                raise HTTPException(
-                    status_code=503,
-                    detail="施設画像の取得に失敗しました。ストレージ接続を確認してください。"
-                )
-
-            image_prompts, generation_log = await generator.generate_ad_images_with_references(
-                marketing_plan=marketing_plan,
-                llm_client=llm_client_image,
-                hotel_id=hotel.id,
-                reference_images=reference_payload,
-                hotel_info={"name": hotel.name, "address": hotel.address or ""} if hotel else None,
-            )
-            image_gen_prompt = f"{selection_log}\n\n{generation_log}"
+                image_prompts = _ad_images_facility_images_required_error()
+                image_gen_prompt = selection_log
+            else:
+                reference_payload = {}
+                try:
+                    for slot, ref in selected_refs.items():
+                        image_data, mime_type = _fetch_s3_image_bytes(hotel.id, ref.get("url", ""))
+                        reference_payload[slot] = {
+                            "data": image_data,
+                            "mime_type": mime_type,
+                            "url": ref.get("url", ""),
+                        }
+                except Exception:
+                    image_prompts = _ad_images_storage_fetch_failed_error()
+                    image_gen_prompt = selection_log
+                else:
+                    image_prompts, generation_log = await generator.generate_ad_images_with_references(
+                        marketing_plan=marketing_plan,
+                        llm_client=llm_client_image,
+                        hotel_id=hotel.id,
+                        reference_images=reference_payload,
+                        hotel_info={"name": hotel.name, "address": hotel.address or ""} if hotel else None,
+                    )
+                    image_gen_prompt = f"{selection_log}\n\n{generation_log}"
         
         # 広告コピー生成
         if request.generate_ad_copy:
@@ -812,7 +833,9 @@ async def generate_creative_assets(
                 session.refresh(creative_asset)
         
         return creative_asset
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"クリエイティブ生成エラー: {str(e)}")
 

@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Instagram, Loader2, Wand2, FileCode, Image, MessageSquare, CheckCircle, AlertCircle, Eye, ExternalLink, X, Link2, Upload, Send, History } from "lucide-react";
 import { useHotel } from "@/lib/hotel-context";
-import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse, LpRevisionEntry } from "@/lib/api";
+import { marketingApi, facilityApi, MarketingPlan, CreativeAsset, HotelResponse, SNSPostResponse, LpRevisionEntry, ApiError } from "@/lib/api";
 import Link from "next/link";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+function hasValidFacilityImages(hotel: HotelResponse): boolean {
+  return (hotel.facility_images ?? []).some(
+    (img) => img.url?.startsWith("/static/hotel_images/")
+  );
+}
+
+function validFacilityImageCount(hotel: HotelResponse): number {
+  return (hotel.facility_images ?? []).filter((img) =>
+    img.url?.startsWith("/static/hotel_images/")
+  ).length;
+}
 
 export default function ContentPage() {
   const { hotel: initialHotel, hotelId } = useHotel();
@@ -18,6 +30,7 @@ export default function ContentPage() {
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
   const [generateOptions, setGenerateOptions] = useState({
     generate_lp: true,
     generate_images: true,
@@ -116,6 +129,19 @@ export default function ContentPage() {
     }
   }, [showImageModal]);
 
+  const hasFacilityImagesForAds = useMemo(
+    () => hasValidFacilityImages(hotel),
+    [hotel.facility_images]
+  );
+
+  useEffect(() => {
+    if (!hasFacilityImagesForAds) {
+      setGenerateOptions((prev) =>
+        prev.generate_images ? { ...prev, generate_images: false } : prev
+      );
+    }
+  }, [hasFacilityImagesForAds]);
+
   useEffect(() => {
     async function loadAssets() {
       if (!selectedPlan) {
@@ -149,6 +175,7 @@ export default function ContentPage() {
   const executeGenerate = async () => {
     if (!selectedPlan) return;
     setGenerating(true);
+    setGenerateError("");
     try {
       const newAsset = await marketingApi.generateCreative(hotelId, {
         plan_id: selectedPlan.id,
@@ -157,6 +184,11 @@ export default function ContentPage() {
       setAssets([newAsset]);
     } catch (error) {
       console.error("Generation failed:", error);
+      const message =
+        error instanceof ApiError
+          ? error.detail
+          : "コンテンツの生成に失敗しました。もう一度お試しください。";
+      setGenerateError(message);
     } finally {
       setGenerating(false);
     }
@@ -474,19 +506,25 @@ export default function ContentPage() {
                     />
                     広告コピー
                   </label>
-                  <label className="flex items-center gap-2 text-slate-300">
+                  <label
+                    className={`flex items-center gap-2 ${hasFacilityImagesForAds ? "text-slate-300" : "text-slate-400"}`}
+                  >
                     <input
                       type="checkbox"
                       checked={generateOptions.generate_images}
+                      disabled={!hasFacilityImagesForAds}
                       onChange={(e) =>
                         setGenerateOptions((prev) => ({
                           ...prev,
                           generate_images: e.target.checked,
                         }))
                       }
-                      className="rounded"
+                      className="rounded disabled:opacity-50"
                     />
                     広告画像
+                    {!hasFacilityImagesForAds && (
+                      <span className="text-xs text-yellow-400 ml-1">（要施設画像登録）</span>
+                    )}
                   </label>
                   <label className="flex items-center gap-2 text-slate-300">
                     <input
@@ -505,6 +543,45 @@ export default function ContentPage() {
                   </label>
                 </div>
               </div>
+            </div>
+
+            {/* 施設画像（広告画像生成の前提） */}
+            <div
+              className={`mb-6 p-4 rounded-lg border ${
+                hasFacilityImagesForAds
+                  ? "bg-green-500/10 border-green-500/30"
+                  : "bg-yellow-500/10 border-yellow-500/30"
+              }`}
+            >
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Upload
+                    className={`w-4 h-4 ${hasFacilityImagesForAds ? "text-green-400" : "text-yellow-400"}`}
+                  />
+                  <span
+                    className={`text-sm font-medium ${hasFacilityImagesForAds ? "text-green-400" : "text-yellow-400"}`}
+                  >
+                    {hasFacilityImagesForAds
+                      ? `施設画像登録済み（${validFacilityImageCount(hotel)}枚）`
+                      : "施設画像未登録"}
+                  </span>
+                </div>
+                <Link
+                  href={`/facility/hotels/${hotelId}/images`}
+                  className={`text-xs transition-colors ${
+                    hasFacilityImagesForAds
+                      ? "text-slate-400 hover:text-white"
+                      : "text-yellow-400 hover:text-yellow-300"
+                  }`}
+                >
+                  {hasFacilityImagesForAds ? "画像を管理する" : "登録する"}
+                </Link>
+              </div>
+              {!hasFacilityImagesForAds && (
+                <p className="text-xs text-slate-400 mt-2">
+                  広告画像の生成には、施設設定で施設画像の登録が必要です。
+                </p>
+              )}
             </div>
 
             {/* CV URL設定状況 */}
@@ -546,6 +623,12 @@ export default function ContentPage() {
                     {hotel.cv_url}
                   </p>
                 )}
+              </div>
+            )}
+
+            {generateError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm whitespace-pre-wrap">
+                {generateError}
               </div>
             )}
 
@@ -1067,7 +1150,11 @@ export default function ContentPage() {
                       const imageValue = value as Record<string, unknown> | string | null;
                       const isError = typeof imageValue === "object" && imageValue !== null && "error" in imageValue;
                       const isQuotaError = isError && imageValue.error === "quota_exceeded";
-                      
+                      const isFacilityImagesRequired =
+                        isError && imageValue.error === "facility_images_required";
+                      const isStorageFetchFailed =
+                        isError && imageValue.error === "storage_fetch_failed";
+
                       return (
                         <div key={key} className="p-4 bg-white/5 rounded-lg">
                           <p className="text-sm text-slate-400 mb-3 font-medium">{key}</p>
@@ -1098,6 +1185,32 @@ export default function ContentPage() {
                               <p className="text-yellow-400 text-sm font-medium mb-1">⚠️ API制限エラー</p>
                               <p className="text-yellow-300/80 text-xs">
                                 {String((imageValue as Record<string, unknown>).message || "API利用制限に達しました。しばらく待ってから再度お試しください。")}
+                              </p>
+                            </div>
+                          ) : isFacilityImagesRequired ? (
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                              <p className="text-yellow-400 text-sm font-medium mb-1">施設画像の登録が必要です</p>
+                              <p className="text-yellow-300/80 text-xs mb-2">
+                                {String(
+                                  (imageValue as Record<string, unknown>).message ||
+                                    "広告画像生成には施設画像が必要です。"
+                                )}
+                              </p>
+                              <Link
+                                href={`/facility/hotels/${hotelId}/images`}
+                                className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                              >
+                                施設画像を登録する
+                              </Link>
+                            </div>
+                          ) : isStorageFetchFailed ? (
+                            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                              <p className="text-red-400 text-sm font-medium mb-1">画像ストレージのエラー</p>
+                              <p className="text-red-300/80 text-xs">
+                                {String(
+                                  (imageValue as Record<string, unknown>).message ||
+                                    "施設画像の取得に失敗しました。ストレージ接続を確認してください。"
+                                )}
                               </p>
                             </div>
                           ) : isError ? (
