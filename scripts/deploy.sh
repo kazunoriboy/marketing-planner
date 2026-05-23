@@ -254,12 +254,15 @@ cmd_setup_host() {
   log "EC2 ホストの初回セットアップを開始します（Amazon Linux 2023 想定）"
 
   sudo dnf update -y
-  sudo dnf install -y docker git certbot
+  sudo dnf install -y docker git certbot cronie
 
   if ! systemctl is-active --quiet docker; then
     sudo systemctl start docker
   fi
   sudo systemctl enable docker
+
+  sudo systemctl enable crond
+  sudo systemctl start crond
 
   if ! groups "$(whoami)" | grep -q '\bdocker\b'; then
     sudo usermod -aG docker "$(whoami)"
@@ -425,8 +428,22 @@ cmd_renew_ssl() {
   log "SSL 証明書を更新し nginx を再起動しました"
 }
 
+ensure_crontab() {
+  if command -v crontab >/dev/null 2>&1; then
+    return
+  fi
+
+  log "crontab が見つかりません。cronie をインストールします（Amazon Linux 想定）"
+  require_command sudo
+  sudo dnf install -y cronie
+  sudo systemctl enable crond
+  sudo systemctl start crond
+  command -v crontab >/dev/null 2>&1 || die "crontab のインストールに失敗しました"
+}
+
 cmd_install_ssl_cron() {
   ensure_project_root
+  ensure_crontab
 
   local cron_line
   cron_line="0 3 1,15 * * ${PROJECT_ROOT}/scripts/deploy.sh renew-ssl >> ${PROJECT_ROOT}/logs/ssl-renew.log 2>&1"
