@@ -4,13 +4,39 @@
 CSVファイルから顧客データを分析し、AIによるインサイトを生成します。
 """
 
-import pandas as pd
 import json
-from typing import Dict, Optional, Tuple
+
+import pandas as pd
+from typing import Dict, List, Optional, Tuple
 import re
 
 from app.core.llm import get_llm_client
 from app.services.base_csv_service import BaseCSVService
+
+
+_SCHEMA_COLUMN_ALIASES: Dict[str, List[str]] = {
+    "booking_date": [
+        "申込日", "予約日", "予約受付日", "受信日", "登録日", "booking_date",
+    ],
+    "stay_date": [
+        "チェックイン日", "宿泊日", "利用日", "開始日", "stay_date",
+    ],
+    "plan_name": [
+        "商品プラン名称", "プラン名", "プラン", "企画名", "plan_name",
+    ],
+    "total_price": [
+        "料金合計額", "合計金額", "請求金額", "支払額", "ポイント割引後額", "total_price",
+    ],
+    "num_guests": [
+        "大人人数計", "大人人数", "宿泊人数", "利用人数", "人数", "num_guests",
+    ],
+    "status": [
+        "予約区分", "ステータス", "状態", "予約状態", "status",
+    ],
+    "guest_area": [
+        "住所1", "都道府県", "居住地域", "発信地", "guest_area",
+    ],
+}
 
 
 class AnalysisService(BaseCSVService):
@@ -24,6 +50,13 @@ class AnalysisService(BaseCSVService):
         super().__init__()
         self.model_name = "gemini-3.1-flash-lite"
     
+    def _infer_schema_from_columns(self, columns: List[str]) -> Dict[str, Optional[str]]:
+        """既知の宿泊予約CSVカラム名からルールベースでスキーマを推定"""
+        schema_map: Dict[str, Optional[str]] = {}
+        for field, aliases in _SCHEMA_COLUMN_ALIASES.items():
+            schema_map[field] = next((alias for alias in aliases if alias in columns), None)
+        return schema_map
+
     # エンコーディング判別とCSV読み込みはBaseCSVServiceから継承
     async def infer_csv_schema(self, df: pd.DataFrame) -> Dict[str, str]:
         """
@@ -35,8 +68,20 @@ class AnalysisService(BaseCSVService):
         Returns:
             カラム名のマッピング辞書
         """
-        # ヘッダーとサンプルデータを取得
         columns = df.columns.tolist()
+        rule_schema = self._infer_schema_from_columns(columns)
+        matched_count = sum(1 for value in rule_schema.values() if value)
+
+        if matched_count >= 4:
+            self._debug_log(
+                'analysis_service.py:infer_csv_schema',
+                'rule-based schema used',
+                {'schema_map': rule_schema, 'matched_count': matched_count},
+                'C',
+            )
+            return {key: value for key, value in rule_schema.items() if value is not None}
+
+        # ヘッダーとサンプルデータを取得
         sample_rows = df.head(10).to_dict('records')
         
         # AIプロンプトを構築
@@ -99,7 +144,14 @@ class AnalysisService(BaseCSVService):
                 schema_map = json.loads(json_match.group())
             else:
                 schema_map = json.loads(json_text)
-            
+
+            self._debug_log(
+                'analysis_service.py:infer_csv_schema',
+                'ai schema used',
+                {'schema_map': schema_map, 'columns': columns[:8]},
+                'C',
+            )
+
             return schema_map
         except Exception as e:
             import logging
@@ -288,6 +340,17 @@ class AnalysisService(BaseCSVService):
                     "cancelled_bookings": int(cancelled_count),
                     "cancellation_rate_percent": round(cancellation_rate, 2)
                 }
+
+                self._debug_log(
+                    'analysis_service.py:calculate_statistics',
+                    'cancellation stats computed',
+                    {
+                        'status_col': status_col,
+                        'cancelled_count': int(cancelled_count),
+                        'status_samples': status_values.value_counts().head(5).to_dict(),
+                    },
+                    'C',
+                )
                 
                 # 直前キャンセル率（宿泊日の7日前以降のキャンセル）
                 if booking_col and stay_col and booking_col in df_work.columns and stay_col in df_work.columns:
