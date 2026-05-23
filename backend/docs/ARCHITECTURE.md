@@ -41,7 +41,7 @@ BaseCSVService (基底クラス)
 
 **ファイル**: `app/services/base_csv_service.py`
 
-### AnalysisService（Gemini 2.5 Flash-Lite版）
+### AnalysisService（Gemini 3.1 Flash-Lite版）
 
 **責務**: 顧客データの包括的な分析
 
@@ -49,7 +49,7 @@ BaseCSVService (基底クラス)
 
 1. **AIスキーマ推定**
    - `infer_csv_schema(df) -> Dict`
-   - Gemini 2.5 Flash-LiteでCSV構造を解釈
+   - Gemini 3.1 Flash-LiteでCSV構造を解釈
 
 2. **詳細統計計算**
    - `calculate_statistics(df, schema_map) -> Dict`

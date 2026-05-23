@@ -52,7 +52,7 @@ docker compose exec backend python tests/test_analysis.py
 **実行される内容:**
 - ✅ サンプルCSVデータ生成（100件）
 - ✅ エンコーディング自動判別のテスト
-- ✅ AIスキーマ推定（Gemini 2.5 Flash-Lite）
+- ✅ AIスキーマ推定（Gemini 3.1 Flash-Lite）
 - ✅ 統計情報計算（キャンセル率、リードタイムなど）
 - ✅ マーケティングインサイト生成
 - ✅ Shift_JISエンコーディングのテスト
@@ -60,14 +60,14 @@ docker compose exec backend python tests/test_analysis.py
 **出力例:**
 ```
 ============================================================
-顧客分析機能テスト - Gemini 2.5 Flash-Lite版
+顧客分析機能テスト - Gemini 3.1 Flash-Lite版
 ============================================================
 
 1. サンプルCSVデータを生成中...
    ✓ 12345 バイトのCSVデータを生成しました
 
 2. AnalysisServiceを初期化中...
-   ✓ 使用モデル: gemini-2.5-flash-lite
+   ✓ 使用モデル: gemini-3.1-flash-lite
 
 3. エンコーディングを検出中...
    ✓ 検出されたエンコーディング: utf-8
@@ -77,7 +77,7 @@ docker compose exec backend python tests/test_analysis.py
    ✓ カラム: ['予約ID', '予約日', '宿泊日', 'プラン名', '合計金額', 'ステータス', '宿泊人数']
 
 5. AIによるスキーマ推定中...
-   （Gemini 2.5 Flash-Liteで処理中...）
+   （Gemini 3.1 Flash-Liteで処理中...）
    ✓ スキーママッピング:
      - booking_date: 予約日
      - stay_date: 宿泊日
@@ -102,7 +102,7 @@ docker compose exec backend python tests/test_analysis.py
        - 最大: ¥48,900
 
 7. AIマーケティングインサイトを生成中...
-   （Gemini 2.5 Flash-Liteで処理中...）
+   （Gemini 3.1 Flash-Liteで処理中...）
    ✓ インサイト:
 
 ------------------------------------------------------------
@@ -326,5 +326,5 @@ print('OK')
 
 **バージョン**: 1.0  
 **最終更新**: 2025年12月1日  
-**使用モデル**: Gemini 2.5 Flash-Lite
+**使用モデル**: Gemini 3.1 Flash-Lite
 

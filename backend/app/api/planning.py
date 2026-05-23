@@ -257,7 +257,7 @@ async def edit_plan_section(
     try:
         # プラン生成サービスを初期化
         generator = PlanGenerator()
-        llm_client = get_llm_client(model_name="gemini-3-flash-preview")
+        llm_client = get_llm_client(model_name="gemini-3.5-flash")
         
         # プラン全体を修正（分析データと資産情報を含めて）
         edited_plan_data = await generator.edit_section(

@@ -11,12 +11,20 @@
 - **フレームワーク**: FastAPI
 - **ORM**: SQLModel
 - **データベース**: PostgreSQL (with pgvector)
-- **AI**: Google Gemini 2.5 Flash-Lite (Google AI API直接呼び出し)
+- **AI**: Google Gemini（Google AI API 直接呼び出し）
 - **データ分析**: Pandas
 
 ### LangChainを使用しない理由
 
 シンプルで保守性の高いアーキテクチャを実現するため、AIモデルのAPIを直接呼び出す方式を採用しています。
+
+### 使用 AI モデル
+
+| モデル ID | 用途 |
+|-----------|------|
+| `gemini-3.1-flash-lite` | デフォルト（顧客分析、市場調査、プラン生成、運用チャットなど） |
+| `gemini-3.5-flash` | LP 生成、プラン修正、高品質テキスト生成 |
+| `gemini-3.1-flash-image-preview` | 広告・LP 用画像生成 |
 
 ## 📁 ディレクトリ構造
 
@@ -29,7 +37,7 @@ backend/
 │   ├── core/                      # コア機能
 │   │   ├── database.py            # データベース接続
 │   │   ├── config.py              # 設定管理
-│   │   └── llm.py                 # LLMクライアント（Gemini 2.5 Flash-Lite）
+│   │   └── llm.py                 # LLMクライアント（Google Gemini）
 │   ├── api/                       # APIエンドポイント
 │   │   ├── analysis.py            # 顧客分析・市場調査
 │   │   ├── planning.py            # プラン作成
@@ -90,12 +98,12 @@ backend/
 
 #### 顧客分析
 - `POST /api/analysis/customer` - CSVファイルをアップロードして顧客データを分析（既存）
-  - スキーマ自動推定（Gemini 2.5 Flash-Lite）
+  - スキーマ自動推定（Gemini 3.1 Flash-Lite）
   - 統計情報計算（Pandas）
   - AIインサイト生成
 - `POST /api/analysis/upload-csv` - CSVファイルをアップロードして顧客データを分析（新規・推奨）
   - エンコーディング自動判別（UTF-8、Shift_JIS等）
-  - AIスキーマ推定（Gemini 2.5 Flash-Lite）
+  - AIスキーマ推定（Gemini 3.1 Flash-Lite）
   - 統計情報計算（キャンセル率、リードタイム、人気プラン等）
   - マーケティングインサイト生成
 
@@ -261,6 +269,10 @@ docker compose exec backend python -m pytest tests/ -v
 ```
 
 詳細は [tests/README.md](tests/README.md) を参照してください。
+
+## 🚢 本番デプロイ
+
+自動デプロイスクリプトはありません。EC2 への手動デプロイ手順はリポジトリ直下の [DEPLOY.md](../DEPLOY.md) を参照してください（`docker-compose.prod.yml` を使用）。
 
 ## 📝 ライセンス
 

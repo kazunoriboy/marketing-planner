@@ -35,7 +35,7 @@ CORS_ORIGINS=http://localhost:3000
 
 ### 1. GOOGLE_API_KEY
 
-Google Gemini 2.0 Flashを使用するために必要です。
+Google Gemini API（`gemini-3.1-flash-lite` ほか）を使用するために必要です。
 
 1. [Google AI Studio](https://makersuite.google.com/app/apikey) にアクセス
 2. APIキーを取得

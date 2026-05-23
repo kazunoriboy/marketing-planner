@@ -1,5 +1,5 @@
 """
-顧客分析サービス - Gemini 2.5 Flash-Lite版
+顧客分析サービス - Gemini 3.1 Flash-Lite版
 
 CSVファイルから顧客データを分析し、AIによるインサイトを生成します。
 """
@@ -15,14 +15,14 @@ from app.services.base_csv_service import BaseCSVService
 
 class AnalysisService(BaseCSVService):
     """
-    顧客分析サービス（Gemini 2.5 Flash-Lite使用）
+    顧客分析サービス（Gemini 3.1 Flash-Lite使用）
     
     BaseCSVServiceを継承し、CSV処理の共通機能を利用
     """
     
     def __init__(self):
         super().__init__()
-        self.model_name = "gemini-2.5-flash-lite"
+        self.model_name = "gemini-3.1-flash-lite"
     
     # エンコーディング判別とCSV読み込みはBaseCSVServiceから継承
     async def infer_csv_schema(self, df: pd.DataFrame) -> Dict[str, str]:
@@ -79,7 +79,7 @@ class AnalysisService(BaseCSVService):
   "guest_area": "該当するカラム名またはnull"
 }}"""
         
-        # Gemini 2.5 Flash-Liteでスキーマを推定
+        # Gemini 3.1 Flash-Liteでスキーマを推定
         llm_client = get_llm_client(model_name=self.model_name)
         response = await llm_client.generate_structured_output(
             user_prompt=user_prompt,
@@ -546,7 +546,7 @@ class AnalysisService(BaseCSVService):
 
 具体的で実践的な提案をお願いします。"""
         
-        # Gemini 2.5 Flash-Liteでインサイトを生成
+        # Gemini 3.1 Flash-Liteでインサイトを生成
         llm_client = get_llm_client(model_name=self.model_name)
         insights = await llm_client.generate_text(
             user_prompt=user_prompt,

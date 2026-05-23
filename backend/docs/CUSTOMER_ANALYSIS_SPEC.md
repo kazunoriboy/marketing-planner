@@ -4,7 +4,7 @@
 
 宿泊施設の予約データ（CSV形式）をアップロードし、AIによる自動分析とマーケティングインサイトを生成する機能です。
 
-**使用AIモデル**: Gemini 2.5 Flash-Lite
+**使用AIモデル**: Gemini 3.1 Flash-Lite
 
 ## 機能仕様
 
@@ -63,7 +63,7 @@ B0003,2024/01/25,2024/04/05,夕朝食付きプラン,18000,確定
 
 #### 2.1 機能概要
 
-Gemini 2.5 Flash-LiteがCSVのカラム名とサンプルデータを解析し、以下のフィールドを自動的に特定します。
+Gemini 3.1 Flash-LiteがCSVのカラム名とサンプルデータを解析し、以下のフィールドを自動的に特定します。
 
 **推定対象フィールド**
 
@@ -206,7 +206,7 @@ Gemini 2.5 Flash-LiteがCSVのカラム名とサンプルデータを解析し�
 
 #### 4.1 機能概要
 
-統計情報を基に、Gemini 2.5 Flash-Liteが実践的なマーケティング提案を生成します。
+統計情報を基に、Gemini 3.1 Flash-Liteが実践的なマーケティング提案を生成します。
 
 #### 4.2 インサイト内容
 
@@ -369,11 +369,11 @@ curl -X POST "http://localhost:8000/api/analysis/upload-csv" \
     ↓
 [pandas DataFrame化]
     ↓
-[AIスキーマ推定] ← Gemini 2.5 Flash-Lite
+[AIスキーマ推定] ← Gemini 3.1 Flash-Lite
     ↓
 [統計情報計算] ← pandas
     ↓
-[AIインサイト生成] ← Gemini 2.5 Flash-Lite
+[AIインサイト生成] ← Gemini 3.1 Flash-Lite
     ↓
 [レスポンス返却]
 ```
@@ -392,7 +392,7 @@ curl -X POST "http://localhost:8000/api/analysis/upload-csv" \
 
 ### APIコスト
 
-**Gemini 2.5 Flash-Lite料金**
+**Gemini 3.1 Flash-Lite料金**
 - 入力: $0.0001 / 1K tokens
 - 出力: $0.0004 / 1K tokens
 

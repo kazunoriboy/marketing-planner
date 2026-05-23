@@ -1119,7 +1119,7 @@ async def fill_surrounding_from_market(
 - 純粋なJSONのみを返す（コードブロック不要）"""
 
     try:
-        llm = get_llm_client(model_name="gemini-2.5-flash-lite")
+        llm = get_llm_client(model_name="gemini-3.1-flash-lite")
         raw = await llm.generate_structured_output(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
@@ -1205,7 +1205,7 @@ async def extract_assets_from_image(
         image_data = await file.read()
         
         # LLMで画像を分析して資産を抽出
-        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        llm_client = get_llm_client(model_name="gemini-3.1-flash-lite")
         
         system_prompt = """あなたは宿泊施設の資産を分析するエキスパートです。
 画像から読み取れるテキストを元に、施設の資産をカテゴリ別に抽出してください。

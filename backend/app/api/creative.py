@@ -247,8 +247,8 @@ async def generate_creative_assets_authenticated(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
-        # LP生成用（gemini-3.1-pro）
-        llm_client_lp = get_llm_client(model_name="gemini-3.1-pro-preview")
+        # LP生成用（gemini-3.5-flash）
+        llm_client_lp = get_llm_client(model_name="gemini-3.5-flash")
         # 画像生成用
         llm_client_image = get_llm_client(model_name="gemini-3.1-flash-image-preview")
         
@@ -566,9 +566,9 @@ async def adjust_lp(
         generator = CreativeGenerator()
 
         # Stage1: Flash（高速・安価）
-        flash_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        flash_client = get_llm_client(model_name="gemini-3.1-flash-lite")
         # Stage2: Pro（高精度）
-        pro_client = get_llm_client(model_name="gemini-3.1-pro-preview")
+        pro_client = get_llm_client(model_name="gemini-3.5-flash")
 
         updated_html, summary = await generator.adjust_landing_page(
             lp_source_code=asset.lp_source_code,
@@ -681,7 +681,7 @@ async def generate_creative_assets(
     try:
         generator = CreativeGenerator()
         llm_client = get_llm_client()
-        llm_client_lp = get_llm_client(model_name="gemini-3.1-pro-preview")
+        llm_client_lp = get_llm_client(model_name="gemini-3.5-flash")
         llm_client_image = get_llm_client(model_name="gemini-3.1-flash-image-preview")
 
         lp_code = None

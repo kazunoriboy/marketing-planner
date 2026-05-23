@@ -191,7 +191,7 @@ async def upload_and_analyze_csv_authenticated(
     session: Session = Depends(get_session)
 ):
     """
-    顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版、認証付き）
+    顧客データ（CSV）を分析（Gemini 3.1 Flash-Lite版、認証付き）
     
     - CSVファイルをアップロード
     - 履歴として保存（過去データと合算）
@@ -617,7 +617,7 @@ async def upload_and_analyze_csv(
     session: Session = Depends(get_session)
 ):
     """
-    顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版）
+    顧客データ（CSV）を分析（Gemini 3.1 Flash-Lite版）
     
     - CSVファイルをアップロード
     - エンコーディング自動判別
@@ -625,7 +625,7 @@ async def upload_and_analyze_csv(
     - 統計情報を計算
     - AIマーケティングインサイトを生成
     
-    使用モデル: Gemini 2.5 Flash-Lite
+    使用モデル: Gemini 3.1 Flash-Lite
     """
     # 宿泊施設の存在確認
     hotel = session.get(Hotel, hotel_id)
@@ -1047,7 +1047,7 @@ async def generate_personas(
     
     try:
         # LLMを使ってペルソナを生成
-        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        llm_client = get_llm_client(model_name="gemini-3.1-flash-lite")
         personas = await _generate_personas_with_llm(
             llm_client=llm_client,
             hotel=hotel,
@@ -1263,7 +1263,7 @@ async def edit_persona(
     
     try:
         # LLMを使ってペルソナを修正
-        llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+        llm_client = get_llm_client(model_name="gemini-3.1-flash-lite")
         current_persona = analysis_session.personas[persona_index]
         
         edited_persona = await _edit_persona_with_llm(

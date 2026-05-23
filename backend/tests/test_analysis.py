@@ -78,7 +78,7 @@ async def test_analysis_service():
     """AnalysisServiceのテスト"""
     
     print("=" * 60)
-    print("顧客分析機能テスト - Gemini 2.5 Flash-Lite版")
+    print("顧客分析機能テスト - Gemini 3.1 Flash-Lite版")
     print("=" * 60)
     print()
     
@@ -109,7 +109,7 @@ async def test_analysis_service():
     
     # スキーマ推定（AI）
     print("5. AIによるスキーマ推定中...")
-    print("   （Gemini 2.5 Flash-Liteで処理中...）")
+    print("   （Gemini 3.1 Flash-Liteで処理中...）")
     schema_map = await service.infer_csv_schema(df)
     print("   ✓ スキーママッピング:")
     for key, value in schema_map.items():
@@ -174,7 +174,7 @@ async def test_analysis_service():
     
     # AIインサイト生成
     print("7. AIマーケティングインサイトを生成中...")
-    print("   （Gemini 2.5 Flash-Liteで処理中...）")
+    print("   （Gemini 3.1 Flash-Liteで処理中...）")
     insights = await service.generate_marketing_insights(statistics)
     print("   ✓ インサイト:")
     print()

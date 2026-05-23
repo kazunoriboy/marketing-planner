@@ -118,7 +118,7 @@ class HotelScrapeService:
 - 純粋なJSONのみを返す（コードブロック不要）"""
 
         try:
-            llm = get_llm_client(model_name="gemini-2.5-flash-lite")
+            llm = get_llm_client(model_name="gemini-3.1-flash-lite")
             raw = await llm.generate_structured_output(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,

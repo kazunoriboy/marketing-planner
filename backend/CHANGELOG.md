@@ -1,5 +1,13 @@
 # 変更履歴
 
+## [Unreleased]
+
+### 🔄 変更
+- 使用 AI モデルを更新
+  - デフォルト: `gemini-2.5-flash-lite` → `gemini-3.1-flash-lite`
+  - 高品質テキスト / LP / プラン修正: `gemini-3.5-flash`
+  - 画像生成: `gemini-3.1-flash-image-preview`
+
 ## [1.0.0] - 2025-12-01
 
 ### ✨ 追加

@@ -4,6 +4,8 @@
 
 **デプロイ先ドメイン**: `ai-marketing.poseidon-inc.com`
 
+> **Note**: 自動デプロイスクリプト（`deploy.sh` 等）はリポジトリに含まれていません。本ドキュメントの手順と `docker-compose.prod.yml` を使った手動デプロイです。
+
 ## 📋 前提条件
 
 - AWS アカウント
@@ -454,7 +456,7 @@ docker stats
 | 変数名 | 必須 | 設定値 |
 |--------|------|--------|
 | DATABASE_URL | ✅ | postgresql://postgres:PASSWORD@db:5432/marketing_planner |
-| GOOGLE_API_KEY | ✅ | Google Gemini API キー |
+| GOOGLE_API_KEY | ✅ | Google Gemini API キー（下記モデル利用） |
 | JWT_SECRET_KEY | ✅ | `openssl rand -hex 32` で生成 |
 | CORS_ORIGINS | ✅ | https://ai-marketing.poseidon-inc.com |
 | DEBUG | - | False |
@@ -468,6 +470,16 @@ docker stats
 | POSTGRES_USER | ✅ | postgres |
 | POSTGRES_PASSWORD | ✅ | DATABASE_URL と同じパスワード |
 | POSTGRES_DB | ✅ | marketing_planner |
+
+### 使用 AI モデル
+
+本番・開発ともに `GOOGLE_API_KEY` 1 つで以下のモデルを利用します。
+
+| モデル ID | 用途 |
+|-----------|------|
+| `gemini-3.1-flash-lite` | デフォルト（分析、プラン生成、運用チャットなど） |
+| `gemini-3.5-flash` | LP 生成、プラン修正、高品質テキスト |
+| `gemini-3.1-flash-image-preview` | 画像生成 |
 
 ---
 

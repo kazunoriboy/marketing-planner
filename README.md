@@ -8,7 +8,7 @@
 - **バックエンド**: FastAPI (Python 3.13)
 - **データベース**: PostgreSQL with pgvector
 - **ORM**: SQLModel
-- **AI**: Google Gemini 2.5 Flash-Lite (Google AI API直接呼び出し)
+- **AI**: Google Gemini（Google AI API 直接呼び出し）
 - **データ分析**: Pandas
 - **ストレージ**: S3互換（RustFS / 施設画像保存用）
 - **コンテナ**: Docker & Docker Compose
@@ -116,7 +116,7 @@ marketing-planner/
 │   │   ├── core/                    # コア機能
 │   │   │   ├── database.py          # データベース接続
 │   │   │   ├── config.py            # 設定管理
-│   │   │   └── llm.py               # LLMクライアント（Gemini 2.5 Flash-Lite）
+│   │   │   └── llm.py               # LLMクライアント（Google Gemini）
 │   │   ├── api/                     # APIエンドポイント
 │   │   │   ├── analysis.py          # 顧客分析・市場調査
 │   │   │   ├── planning.py          # プラン作成
@@ -158,7 +158,7 @@ marketing-planner/
 
 ### 1. 顧客データ分析 (`/api/analysis/upload-csv` 🆕)
 - **CSVファイルのアップロード**: 複数エンコーディング自動判別（UTF-8、Shift_JIS等）
-- **AIスキーマ推定**: Gemini 2.5 Flash-LiteがCSV構造を自動解析
+- **AIスキーマ推定**: Gemini 3.1 Flash-Lite が CSV 構造を自動解析
 - **統計分析**: キャンセル率、リードタイム、人気プラン、曜日別稼働率、価格統計
 - **マーケティングインサイト生成**: 実践的な施策提案
 
@@ -180,6 +180,16 @@ marketing-planner/
 - **広告画像**: 画像生成AIプロンプトの作成
 - **広告コピー**: Google Ads、Facebook Ads、Instagram等の広告文生成
 
+## 使用 AI モデル
+
+Google Gemini API を用途別に使い分けています（`backend/app/core/llm.py`）。
+
+| モデル ID | 用途 |
+|-----------|------|
+| `gemini-3.1-flash-lite` | デフォルト（顧客分析、市場調査、プラン生成、運用チャット、画像分析など） |
+| `gemini-3.5-flash` | LP 生成、プラン修正、高品質テキスト生成 |
+| `gemini-3.1-flash-image-preview` | 広告・LP 用画像生成 |
+
 ## 📚 ドキュメント
 
 詳細なドキュメントは以下を参照してください：
@@ -188,7 +198,7 @@ marketing-planner/
 - **[クイックスタート](backend/docs/QUICKSTART.md)** - 5分で始める顧客分析機能
 - **[機能仕様書](backend/docs/CUSTOMER_ANALYSIS_SPEC.md)** - 顧客分析機能の詳細仕様
 - **[実装ガイド](backend/docs/IMPLEMENTATION_GUIDE.md)** - 技術的な実装詳細
-- **[テストガイド](backend/tests/README.md)** - テストの実行方法
+- **[EC2 デプロイ手順](DEPLOY.md)** - 本番環境への手動デプロイ手順
 
 ## 🧪 テスト
 

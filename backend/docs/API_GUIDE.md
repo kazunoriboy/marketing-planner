@@ -1,6 +1,6 @@
-# 顧客分析機能 - Gemini 2.5 Flash-Lite版
+# 顧客分析機能 - Gemini 3.1 Flash-Lite版
 
-このドキュメントでは、Gemini 2.5 Flash-Liteを使用した顧客分析機能の実装について説明します。
+このドキュメントでは、Gemini 3.1 Flash-Liteを使用した顧客分析機能の実装について説明します。
 
 ## 概要
 
@@ -9,13 +9,13 @@
 ### 主な機能
 
 1. **スマートエンコーディング判別**: 自動でCSVのエンコーディング（UTF-8、Shift_JIS等）を検出
-2. **AIスキーマ推定**: Gemini 2.5 Flash-LiteがCSV構造を理解し、カラムを自動マッピング
+2. **AIスキーマ推定**: Gemini 3.1 Flash-LiteがCSV構造を理解し、カラムを自動マッピング
 3. **統計計算**: pandas でデータを正規化し、重要な指標を計算
 4. **AIインサイト生成**: データから実践的なマーケティング施策を提案
 
 ## 使用モデル
 
-**Gemini 2.5 Flash-Lite**
+**Gemini 3.1 Flash-Lite**
 - 高速・安価でありながら高い推論能力
 - CSV構造の理解と戦略的提案に最適
 
@@ -24,7 +24,7 @@
 ```
 backend/app/
 ├── core/
-│   └── llm.py                    # LLMクライアント（Gemini 2.5 Flash-Lite対応）
+│   └── llm.py                    # LLMクライアント（Gemini 3.1 Flash-Lite対応）
 ├── services/
 │   ├── analysis_service.py       # 新規実装（推奨）
 │   └── csv_analyzer.py           # 既存実装（更新済み）
@@ -36,7 +36,7 @@ backend/app/
 
 ### POST `/api/analysis/upload-csv`
 
-顧客データ（CSV）を分析します（Gemini 2.5 Flash-Lite版）。
+顧客データ（CSV）を分析します（Gemini 3.1 Flash-Lite版）。
 
 **リクエスト**
 - `hotel_id` (form): 宿泊施設ID
@@ -90,7 +90,7 @@ backend/app/
 
 ### POST `/api/analysis/customer`
 
-従来の実装（既存エンドポイント、Gemini 2.5 Flash-Lite対応済み）。
+従来の実装（既存エンドポイント、Gemini 3.1 Flash-Lite対応済み）。
 
 ## 実装詳細
 
@@ -99,8 +99,8 @@ backend/app/
 ```python
 from app.core.llm import get_llm_client
 
-# Gemini 2.5 Flash-Liteクライアントを取得
-llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+# Gemini 3.1 Flash-Liteクライアントを取得
+llm_client = get_llm_client(model_name="gemini-3.1-flash-lite")
 ```
 
 ### 2. AIによるスキーマ推定
@@ -185,15 +185,22 @@ curl -X POST "http://localhost:8000/api/analysis/upload-csv" \
 
 ### モデル名の指定
 
-コード内で必ず `"gemini-2.5-flash-lite"` を指定してください。
+コード内で必ず `"gemini-3.1-flash-lite"` を指定してください。
 
 ```python
 # ✅ 正しい
-llm_client = get_llm_client(model_name="gemini-2.5-flash-lite")
+llm_client = get_llm_client(model_name="gemini-3.1-flash-lite")
 
 # ❌ 間違い
 llm_client = get_llm_client(model_name="gemini-2.0-flash-exp")
 ```
+
+顧客分析以外の機能では別モデルを使用します。一覧は [ルート README](../../../README.md#使用-ai-モデル) を参照してください。
+
+| モデル ID | 用途 |
+|-----------|------|
+| `gemini-3.5-flash` | LP 生成、プラン修正、高品質テキスト |
+| `gemini-3.1-flash-image-preview` | 画像生成 |
 
 ### 環境変数
 

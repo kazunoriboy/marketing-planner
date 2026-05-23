@@ -16,12 +16,12 @@ _image_executor = ThreadPoolExecutor(max_workers=4)
 class LLMClient:
     """Google Geminiを使用するLLMクライアント"""
     
-    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
+    def __init__(self, model_name: str = "gemini-3.1-flash-lite"):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY環境変数が設定されていません")
         genai.configure(api_key=api_key)
-        self.model_name = model_name  # デフォルトはGemini 2.5 Flash-Lite
+        self.model_name = model_name  # デフォルトはGemini 3.1 Flash-Lite
     
     async def generate_text(
         self,
@@ -322,7 +322,7 @@ class LLMClient:
         
         Note:
             画像生成に使用するモデルはクライアント初期化時のmodel_nameを使用
-            (例: gemini-3-pro-image-preview)
+            (例: gemini-3.1-flash-image-preview)
             google.genai パッケージは同期APIのため、スレッドプールで実行
         """
         def _generate_image_sync():
@@ -414,12 +414,12 @@ class LLMClient:
 _llm_clients: dict[str, LLMClient] = {}
 
 
-def get_llm_client(model_name: str = "gemini-2.5-flash-lite") -> LLMClient:
+def get_llm_client(model_name: str = "gemini-3.1-flash-lite") -> LLMClient:
     """
     LLMクライアントのインスタンスを取得（モデル名ごとにキャッシュ）
     
     Args:
-        model_name: 使用するGeminiモデル名（デフォルト: gemini-2.5-flash-lite）
+        model_name: 使用するGeminiモデル名（デフォルト: gemini-3.1-flash-lite）
     
     Returns:
         LLMクライアントインスタンス
@@ -433,7 +433,7 @@ def get_llm_client(model_name: str = "gemini-2.5-flash-lite") -> LLMClient:
 async def generate_text(
     system_prompt: str,
     user_prompt: str,
-    model: str = "gemini-2.5-flash-lite",
+    model: str = "gemini-3.1-flash-lite",
     max_tokens: int = 4096,
     temperature: float = 1.0
 ) -> str:

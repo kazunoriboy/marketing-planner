@@ -5,7 +5,7 @@
 
 ## 概要
 
-Gemini 2.5 Flash-Liteを使用した顧客分析機能の実装詳細を説明します。
+Gemini 3.1 Flash-Liteを使用した顧客分析機能の実装詳細を説明します。
 
 ## アーキテクチャ
 
@@ -29,9 +29,9 @@ Gemini 2.5 Flash-Liteを使用した顧客分析機能の実装詳細を説明�
 │  (Core Logic)   │
 └────┬────────────┘
      │
-     ├─→ [Gemini 2.5 Flash-Lite] - AIスキーマ推定
+     ├─→ [Gemini 3.1 Flash-Lite] - AIスキーマ推定
      ├─→ [pandas] - 統計計算
-     └─→ [Gemini 2.5 Flash-Lite] - インサイト生成
+     └─→ [Gemini 3.1 Flash-Lite] - インサイト生成
 ```
 
 ### ディレクトリ構造
@@ -66,7 +66,7 @@ backend/
 **コンストラクタの更新**
 ```python
 class LLMClient:
-    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
+    def __init__(self, model_name: str = "gemini-3.1-flash-lite"):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY環境変数が設定されていません")
@@ -79,7 +79,7 @@ class LLMClient:
 async def generate_text(
     system_prompt: str,
     user_prompt: str,
-    model: str = "gemini-2.5-flash-lite",
+    model: str = "gemini-3.1-flash-lite",
     max_tokens: int = 4096,
     temperature: float = 1.0
 ) -> str:
@@ -102,7 +102,7 @@ class AnalysisService:
     """顧客分析サービス"""
     
     def __init__(self):
-        self.model_name = "gemini-2.5-flash-lite"
+        self.model_name = "gemini-3.1-flash-lite"
 ```
 
 #### 実装メソッド
@@ -165,7 +165,7 @@ def _load_csv(self, file_content: bytes) -> pd.DataFrame:
 ```python
 async def infer_csv_schema(self, df: pd.DataFrame) -> Dict[str, str]:
     """
-    Gemini 2.5 Flash-LiteでCSVスキーマを推定
+    Gemini 3.1 Flash-LiteでCSVスキーマを推定
     
     1. ヘッダーとサンプルデータを取得
     2. AIにプロンプトを投げる
@@ -309,7 +309,7 @@ def calculate_statistics(
 ```python
 async def generate_marketing_insights(self, stats: Dict) -> str:
     """
-    Gemini 2.5 Flash-Liteでマーケティングインサイトを生成
+    Gemini 3.1 Flash-Liteでマーケティングインサイトを生成
     """
     system_prompt = """あなたは宿泊施設のマーケティング戦略コンサルタントです。
 データ分析結果から実践的なインサイトを導き出し、具体的なアクションプランを提案してください。
@@ -369,7 +369,7 @@ async def upload_and_analyze_csv(
     session: Session = Depends(get_session)
 ):
     """
-    顧客データ（CSV）を分析（Gemini 2.5 Flash-Lite版）
+    顧客データ（CSV）を分析（Gemini 3.1 Flash-Lite版）
     """
     # 宿泊施設の存在確認
     hotel = session.get(Hotel, hotel_id)

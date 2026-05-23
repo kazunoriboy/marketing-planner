@@ -196,6 +196,8 @@ async def test_endpoint():
             "クリエイティブアセット生成（LP・広告コピー・画像プロンプト）"
         ],
         "ai_models": [
-            "Claude 3.5 Sonnet (Anthropic)"
+            "gemini-3.1-flash-lite (default)",
+            "gemini-3.5-flash (LP / plan edit / high-quality text)",
+            "gemini-3.1-flash-image-preview (image generation)",
         ]
     }
