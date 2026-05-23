@@ -401,9 +401,27 @@ cmd_renew_ssl() {
   ensure_env_files
 
   require_command certbot
-  sudo certbot renew --quiet
+
+  log "nginx を停止して certbot で証明書を更新します（standalone 取得のため 80 番が必要）"
+  compose stop nginx
+
+  if ! sudo certbot renew --quiet; then
+    log "certbot renew に失敗しました。force-renew で再取得を試みます"
+    [[ -n "${CERTBOT_EMAIL:-}" ]] || die "CERTBOT_EMAIL が未設定です"
+
+    sudo certbot certonly \
+      --standalone \
+      -d "${DOMAIN}" \
+      --force-renew \
+      --non-interactive \
+      --agree-tos \
+      -m "${CERTBOT_EMAIL}"
+  fi
+
   copy_ssl_certs
-  compose restart nginx
+
+  log "nginx を再起動します"
+  compose up -d nginx
   log "SSL 証明書を更新し nginx を再起動しました"
 }
 

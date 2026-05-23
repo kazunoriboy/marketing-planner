@@ -395,7 +395,7 @@ Let's Encrypt の証明書は90日で期限切れになります。
 # cron 登録（推奨）
 ./scripts/deploy.sh install-ssl-cron
 
-# 手動更新
+# 手動更新（nginx を一時停止して certbot を実行）
 ./scripts/deploy.sh renew-ssl
 ```
 
