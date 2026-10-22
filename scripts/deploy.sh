@@ -299,7 +299,7 @@ cmd_seed_admin() {
 cmd_build() {
   ensure_project_root
   ensure_env_files
-  compose build
+  compose build --pull
 }
 
 cmd_up() {
@@ -350,7 +350,7 @@ cmd_deploy() {
   fi
 
   log "Docker イメージをビルドします"
-  compose build
+  compose build --pull
 
   log "コンテナを起動します"
   compose up -d
@@ -375,7 +375,7 @@ cmd_setup_ssl() {
   cp "${PROJECT_ROOT}/nginx/nginx.initial.conf" "${PROJECT_ROOT}/nginx/nginx.conf"
   mkdir -p "${SSL_DIR}"
 
-  compose build
+  compose build --pull
   compose up -d
 
   log "nginx を停止して certbot standalone で証明書を取得します"
