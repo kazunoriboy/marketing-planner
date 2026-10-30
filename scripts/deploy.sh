@@ -166,8 +166,9 @@ docker compose は ${DB_ENV_FILE} を参照します。
 }
 
 copy_ssl_certs() {
-  [[ -f "${CERT_PATH}/fullchain.pem" ]] || die "証明書が見つかりません: ${CERT_PATH}/fullchain.pem"
-  [[ -f "${CERT_PATH}/privkey.pem" ]] || die "証明書が見つかりません: ${CERT_PATH}/privkey.pem"
+  # /etc/letsencrypt/live は root 以外読めないため sudo で存在確認する
+  sudo test -f "${CERT_PATH}/fullchain.pem" || die "証明書が見つかりません: ${CERT_PATH}/fullchain.pem"
+  sudo test -f "${CERT_PATH}/privkey.pem" || die "証明書が見つかりません: ${CERT_PATH}/privkey.pem"
 
   mkdir -p "${SSL_DIR}"
   sudo cp "${CERT_PATH}/fullchain.pem" "${SSL_DIR}/"
@@ -407,6 +408,8 @@ cmd_renew_ssl() {
 
   log "nginx を停止して certbot で証明書を更新します（standalone 取得のため 80 番が必要）"
   compose stop nginx
+  # 途中で失敗しても nginx を停止したままにしない
+  trap 'log "nginx を起動します"; compose up -d nginx' EXIT
 
   if ! sudo certbot renew --quiet; then
     log "certbot renew に失敗しました。force-renew で再取得を試みます"
@@ -423,6 +426,7 @@ cmd_renew_ssl() {
 
   copy_ssl_certs
 
+  trap - EXIT
   log "nginx を再起動します"
   compose up -d nginx
   log "SSL 証明書を更新し nginx を再起動しました"
