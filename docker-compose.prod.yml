@@ -52,7 +52,8 @@ services:
       retries: 5
 
   nginx:
-    image: nginx:alpine
+    # CVE-2026-123007 ほか (NGINX2Root) の修正版。タグを固定し、更新時は明示的に上げる
+    image: nginx:1.31.9-alpine
     restart: always
     ports:
       - "80:80"
